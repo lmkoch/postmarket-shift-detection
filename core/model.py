@@ -139,7 +139,7 @@ class MNISTNet(nn.Module):
         
         checkpoint = torch.load(self.checkpoint_path, map_location=self.device)
 
-        self.load_state_dict(checkpoint['model_state_dict'])
+        self.model.load_state_dict(checkpoint['model_state_dict'])
         self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         epoch = checkpoint['epoch']
         batch_loss = checkpoint['loss']
