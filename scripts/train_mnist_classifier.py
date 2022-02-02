@@ -27,7 +27,7 @@ if __name__ == "__main__":
         "--seed", dest="seed", action="store", default=1000, type=int, help="",
     )
     parser.add_argument(
-        "--remove_digit", dest="remove_digit", action="store", default=4, type=int, 
+        "--remove_digit", dest="remove_digit", action="store", default=3, type=int, 
         help='digit to remove (default: keep all digits'
     )   
     
@@ -72,7 +72,7 @@ if __name__ == "__main__":
     if params['model']['task_classifier_type'] == 'mnist':
         model = MNISTNet(n_outputs=params['model']['n_outputs'],
                          checkpoint_path=params['model']['task_classifier_path'],
-                         download=False)
+                         download=False, remove_digit=args.remove_digit)
     else:
         raise NotImplementedError     
        
