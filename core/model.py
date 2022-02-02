@@ -34,7 +34,8 @@ class MNISTNet(nn.Module):
     rest from https://pytorch.org/tutorials/beginner/blitz/cifar10_tutorial.html
 
     """
-    def __init__(self, in_channels=1, n_outputs=10, checkpoint_path=None, download=True):
+    def __init__(self, in_channels=1, n_outputs=10, checkpoint_path=None, download=True,
+                 remove_digit=None):
         super(MNISTNet, self).__init__()
 
         # Load a pretrained resnet model from torchvision.models in Pytorch
@@ -47,15 +48,18 @@ class MNISTNet(nn.Module):
         self.model.conv1 = nn.Conv2d(in_channels, 64, kernel_size=7, stride=2, padding=3, bias=False)
 
         # Change the output layer to output 10 classes instead of 1000 classes
+        
+        # TODO: n_outputs argument could be removed, but would require refactor
+        self.remove_digit=remove_digit        
+        self.n_outputs = n_outputs
+        
         num_ftrs = self.model.fc.in_features
-        self.model.fc = nn.Linear(num_ftrs, n_outputs)
+        self.model.fc = nn.Linear(num_ftrs, self.n_outputs)
 
         self.device = torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
 
         self.criterion = nn.CrossEntropyLoss()
         self.optimizer = optim.SGD(self.model.parameters(), lr=0.001, momentum=0.9)
-        
-        self.n_outputs = n_outputs
 
         out_dir = os.path.dirname(checkpoint_path)
         os.makedirs(out_dir, exist_ok=True)
@@ -103,13 +107,12 @@ class MNISTNet(nn.Module):
             for i, data in enumerate(dataloader_train):
                 inputs, labels = data
 
-                if self.n_outputs == 9:
+                if self.remove_digit != None:
                     # adjustments specific for the 9-way classificaiton
-                    # TODO: currently hardcoded to exclude 5. Could make configurable
                     labels_onehot = one_hot(labels, num_classes=10).type(torch.float)
 
                     class_idx = torch.ones(10, dtype=torch.bool)
-                    class_idx[5] = 0
+                    class_idx[self.remove_digit] = 0
                     
                     labels = labels_onehot[:, class_idx]
                 
@@ -145,7 +148,7 @@ class MNISTNet(nn.Module):
         
         return epoch, batch_loss
 
-    def eval_model(self, dataloader):
+    def eval_model(self, dataloader, ):
 
         self.model.eval()
         # since we're not training, we don't need to calculate the gradients for our outputs
@@ -161,8 +164,8 @@ class MNISTNet(nn.Module):
                 # the class with the highest energy is what we choose as prediction
                 _, predicted = torch.max(outputs.data, 1)
                 
-                if self.n_outputs == 9:
-                    predicted[predicted>4] += 1
+                if self.remove_digit != None:
+                    predicted[predicted >= self.remove_digit] += 1
                 
                 total += predicted.size(0)
                 correct += (predicted == y).sum().item()
