@@ -27,13 +27,9 @@ if __name__ == "__main__":
         "--seed", dest="seed", action="store", default=1000, type=int, help="",
     )
     parser.add_argument(
-        "--remove_digit", dest="remove_digit", action="store", default=3, type=int, 
+        "--remove_digit", dest="remove_digit", action="store", default=8, type=int, 
         help='digit to remove (default: keep all digits'
     )   
-    
-    # TODO: override config file parameters with specific arguments (such as subgroup index)
-    # TODO: save config file to experiment folder
-    
    
     args = parser.parse_args()
     

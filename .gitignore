@@ -2,7 +2,7 @@
 *.pyc
 *.sh
 *.log
-.env
-.vscode
-experiments
+.env*
+.vscode*
+experiments*
 data

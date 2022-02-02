@@ -66,8 +66,10 @@ class MNISTNet(nn.Module):
 
         self.checkpoint_path = checkpoint_path         
     
+        model_name = os.path.basename(checkpoint_path).split('.')[0]
+    
         self.logger = logging.getLogger('mnist_classification')
-        self.logger.addHandler(logging.FileHandler(os.path.join(out_dir, 'mnist.log')))
+        self.logger.addHandler(logging.FileHandler(os.path.join(out_dir, f'{model_name}.log')))
         self.logger.setLevel(logging.INFO)        
 
         trained_models_url = 'https://drive.google.com/uc?id=1fYmNcgvm91YnMRX4isGAXVors9I17oWD'       
