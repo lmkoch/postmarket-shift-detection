@@ -13,7 +13,8 @@ from scipy.interpolate import griddata
 import torch
 import torch.nn as nn
 
-from core.model import MNISTNet
+from core.model import get_classification_model
+# from core.model import MNISTNet
 from core.dataset import dataset_fn
 from utils.config import load_config, create_exp_from_config
 from utils.helpers import set_rcParams
@@ -133,12 +134,14 @@ def main(exp_dir, config_file, seed, run_gridsearch=True, run_plot=True, run_eva
 
     dataloader = dataset_fn(seed=seed, params_dict=params['dataset'])
 
-    if params['model']['task_classifier_type'] == 'mnist':
-        model = MNISTNet(n_outputs=params['model']['n_outputs'],
-                         checkpoint_path=params['model']['task_classifier_path'],
-                         download=True)
-    else:
-        raise NotImplementedError        
+    model = get_classification_model(params['model'])
+
+    # if params['model']['task_classifier_type'] == 'mnist':
+    #     model = MNISTNet(n_outputs=params['model']['n_outputs'],
+    #                      checkpoint_path=params['model']['task_classifier_path'],
+    #                      download=True)
+    # else:
+    #     raise NotImplementedError        
 
     ###############################################################################################################################
     # Hyperparameter search and evaluation on test fold
