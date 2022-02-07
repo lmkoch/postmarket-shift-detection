@@ -167,27 +167,31 @@ def main(exp_dir, config_file, seed, run_gridsearch=True, run_plot=True, run_eva
     run_la_redux = True
     if run_la_redux:
         from laplace import Laplace
+    
+        
+        print('--------------------------')
+
+        scores_id = predict(dataloader['validation']['p'], model, laplace=False)
+        scores_ood = predict(dataloader['validation']['q'], model, laplace=False)
+        x = scores_id.max(-1)
+        y = scores_ood.max(-1)
+        roc_auc, fpr95 = odin.evaluate_scores(x, y)
+        # roc_auc, fpr95 = odin.evaluate_scores(scores_id, scores_ood)
+        print(f'baseline -- AUC: {roc_auc}, FPR: {fpr95}, detection rate: {1-fpr95}')
+
+        print('--------------------------')
         
         la = Laplace(model, 'classification',
              subset_of_weights='last_layer',
              hessian_structure='kron')
         la.fit(dataloader['train']['p'])
         la.optimize_prior_precision(method='marglik')
-        
-        print('--------------------------:')
-
-        scores_id = predict(dataloader['validation']['p'], model, laplace=False)
-        scores_ood = predict(dataloader['validation']['q'], model, laplace=False)
-        
-        roc_auc, fpr95 = odin.evaluate_scores(scores_id, scores_ood)
-        print(f'baseline -- AUC: {roc_auc}, FPR: {fpr95}, detection rate: {1-fpr95}')
-
-        print('--------------------------:')
-
         probs_laplace_id = predict(dataloader['validation']['p'], la, laplace=True)
         probs_laplace_ood = predict(dataloader['validation']['q'], la, laplace=True)
-        
-        roc_auc, fpr95 = odin.evaluate_scores(probs_laplace_id, probs_laplace_ood)
+        x = probs_laplace_id.max(-1)
+        y = probs_laplace_ood.max(-1)
+        roc_auc, fpr95 = odin.evaluate_scores(x, y)        
+        # roc_auc, fpr95 = odin.evaluate_scores(probs_laplace_id, probs_laplace_ood)
         print(f'baseline -- AUC: {roc_auc}, FPR: {fpr95}, detection rate: {1-fpr95}')
 
 
