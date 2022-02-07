@@ -110,6 +110,21 @@ def eval_best_param(dl_in, dl_out, model, gridsearch_df, results_csv):
 
     df.to_csv(results_csv)        
 
+@torch.no_grad()
+def predict(dataloader, model, laplace=False):
+
+    device = torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
+
+    py = []
+
+    for x, _ in dataloader:
+        if laplace:
+            py.append(model(x.to(device)))
+        else:
+            py.append(torch.softmax(model(x.to(device)), dim=-1))
+
+    return torch.cat(py).cpu().numpy()
+
 def main(exp_dir, config_file, seed, run_gridsearch=True, run_plot=True, run_eval=True):
 
     exp_name = create_exp_from_config(config_file, args.exp_dir)
@@ -148,6 +163,34 @@ def main(exp_dir, config_file, seed, run_gridsearch=True, run_plot=True, run_eva
     ###############################################################################################################################
 
     model.eval()
+        
+    run_la_redux = True
+    if run_la_redux:
+        from laplace import Laplace
+        
+        la = Laplace(model, 'classification',
+             subset_of_weights='last_layer',
+             hessian_structure='kron')
+        la.fit(dataloader['train']['p'])
+        la.optimize_prior_precision(method='marglik')
+        
+        print('--------------------------:')
+
+        scores_id = predict(dataloader['validation']['p'], model, laplace=False)
+        scores_ood = predict(dataloader['validation']['q'], model, laplace=False)
+        
+        roc_auc, fpr95 = odin.evaluate_scores(scores_id, scores_ood)
+        print(f'baseline -- AUC: {roc_auc}, FPR: {fpr95}, detection rate: {1-fpr95}')
+
+        print('--------------------------:')
+
+        probs_laplace_id = predict(dataloader['validation']['p'], la, laplace=True)
+        probs_laplace_ood = predict(dataloader['validation']['q'], la, laplace=True)
+        
+        roc_auc, fpr95 = odin.evaluate_scores(probs_laplace_id, probs_laplace_ood)
+        print(f'baseline -- AUC: {roc_auc}, FPR: {fpr95}, detection rate: {1-fpr95}')
+
+
           
     if not run_gridsearch and not os.path.exists(results_gridsearch_csv):
         raise ValueError('must run grid search.')
@@ -177,10 +220,10 @@ if __name__ == "__main__":
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
     parser.add_argument(
-        "--exp_dir", action="store", type=str, help="experiment folder", default='./experiments/individual-ood'
+        "--exp_dir", action="store", type=str, help="experiment folder", default='./experiments_rebuttal/individual-ood'
     )
     parser.add_argument(
-        "--config_file", action="store", type=str, help="config file", default='./config/odin_mnist_5x100.yaml'
+        "--config_file", action="store", type=str, help="config file", default='./config/odin_mnist_no5_10outputs.yaml'
     )  
     parser.add_argument(
         "--seed", dest="seed", action="store", default=1000, type=int, help="random seed",

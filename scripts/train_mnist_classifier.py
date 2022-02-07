@@ -27,7 +27,7 @@ if __name__ == "__main__":
         "--seed", dest="seed", action="store", default=1000, type=int, help="",
     )
     parser.add_argument(
-        "--remove_digit", dest="remove_digit", action="store", default=8, type=int, 
+        "--remove_digit", dest="remove_digit", action="store", default=5, type=int, 
         help='digit to remove (default: keep all digits'
     )   
    
@@ -40,13 +40,16 @@ if __name__ == "__main__":
     if args.remove_digit != None:
         # remove digit from dataloader
         params['dataset']['dl']['p']['sampling_weights'][args.remove_digit] = 0
-        params['model']['n_outputs'] = 9
+        params['model']['n_outputs'] = 10 # TODO maybe switch back to 9
         
         task_classifier_path = params['model']['task_classifier_path']
         
-        model_name = f'mnist_no{args.remove_digit}'        
+        model_name = f'mnist_no{args.remove_digit}'    
+    
     else: 
         model_name = f'mnist'
+
+    params['model']['remove_idx'] = args.remove_digit
 
     params['model']['task_classifier_path'] = os.path.join(args.out_dir, f'{model_name}.pt')    
     
@@ -66,9 +69,12 @@ if __name__ == "__main__":
     ###############################################################################################################################
     
     if params['model']['task_classifier_type'] == 'mnist':
+        # model = MNISTNet(n_outputs=params['model']['n_outputs'],
+        #                  checkpoint_path=params['model']['task_classifier_path'],
+        #                  download=False, remove_digit=args.remove_digit)
         model = MNISTNet(n_outputs=params['model']['n_outputs'],
                          checkpoint_path=params['model']['task_classifier_path'],
-                         download=False, remove_digit=args.remove_digit)
+                         download=False)    
     else:
         raise NotImplementedError     
        
