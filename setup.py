@@ -18,6 +18,7 @@ setup(name='subgroupshift',
           'torchvision==0.11.1',
           'tensorboard==2.7.0',
           'tqdm==4.62.3',
+          'laplace-torch',
           'wilds @ git+https://github.com/lmkoch/wilds.git'
         ],
         license='MIT')
