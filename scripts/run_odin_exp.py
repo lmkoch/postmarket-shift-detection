@@ -11,10 +11,8 @@ import numpy as np
 from scipy.interpolate import griddata
 
 import torch
-import torch.nn as nn
 
 from core.model import get_classification_model
-# from core.model import MNISTNet
 from core.dataset import dataset_fn
 from utils.config import load_config, create_exp_from_config
 from utils.helpers import set_rcParams
@@ -81,16 +79,21 @@ def plot_gridsearch_results(df, temperatures, epsilons, log_dir):
         file_name = os.path.join(log_dir, f'ood_{measure}.pdf')
         fig.savefig(file_name)
 
-def eval_best_param(dl_in, dl_out, model, gridsearch_df, results_csv):
+def select_best_param(results_gridsearch_csv):
     
-    device = torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
+    gridsearch_df = pd.read_csv(results_gridsearch_csv)
 
-    
     subset = gridsearch_df.loc[gridsearch_df['method'] == 'odin']
     best_row = subset[subset.fpr95 == subset.fpr95.min()]
 
     temper = best_row['temperature'].values[0]
     epsi = best_row['epsilon'].values[0]
+    
+    return temper, epsi
+    
+def eval_best_param(dl_in, dl_out, model, temper, epsi, results_csv):
+    
+    device = torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
 
     num_img = len(dl_in.dataset)
 
@@ -109,6 +112,8 @@ def eval_best_param(dl_in, dl_out, model, gridsearch_df, results_csv):
         df = df.append(row, ignore_index=True)
 
     df.to_csv(results_csv)        
+
+    return df
 
 @torch.no_grad()
 def predict(dataloader, model, laplace=False):
@@ -131,7 +136,6 @@ def main(exp_dir, config_file, seed, run_gridsearch=True, run_plot=True, run_eva
 
     print(f'run ODIN for configuration: {exp_name}')
 
-    
     # paths
     log_dir = os.path.join(exp_dir, exp_name)
     results_gridsearch_csv = os.path.join(log_dir, 'ood_gridsearch.csv')
@@ -149,53 +153,14 @@ def main(exp_dir, config_file, seed, run_gridsearch=True, run_plot=True, run_eva
 
     dataloader = dataset_fn(seed=seed, params_dict=params['dataset'])
 
-    model = get_classification_model(params['model'])
-
-    # if params['model']['task_classifier_type'] == 'mnist':
-    #     model = MNISTNet(n_outputs=params['model']['n_outputs'],
-    #                      checkpoint_path=params['model']['task_classifier_path'],
-    #                      download=True)
-    # else:
-    #     raise NotImplementedError        
+    model = get_classification_model(params['model'])  
 
     ###############################################################################################################################
     # Hyperparameter search and evaluation on test fold
     ###############################################################################################################################
 
     model.eval()
-        
-    run_la_redux = True
-    if run_la_redux:
-        from laplace import Laplace
-    
-        
-        print('--------------------------')
-
-        scores_id = predict(dataloader['validation']['p'], model, laplace=False)
-        scores_ood = predict(dataloader['validation']['q'], model, laplace=False)
-        x = scores_id.max(-1)
-        y = scores_ood.max(-1)
-        roc_auc, fpr95 = odin.evaluate_scores(x, y)
-        # roc_auc, fpr95 = odin.evaluate_scores(scores_id, scores_ood)
-        print(f'baseline -- AUC: {roc_auc}, FPR: {fpr95}, detection rate: {1-fpr95}')
-
-        print('--------------------------')
-        
-        la = Laplace(model, 'classification',
-             subset_of_weights='last_layer',
-             hessian_structure='kron')
-        la.fit(dataloader['train']['p'])
-        la.optimize_prior_precision(method='marglik')
-        probs_laplace_id = predict(dataloader['validation']['p'], la, laplace=True)
-        probs_laplace_ood = predict(dataloader['validation']['q'], la, laplace=True)
-        x = probs_laplace_id.max(-1)
-        y = probs_laplace_ood.max(-1)
-        roc_auc, fpr95 = odin.evaluate_scores(x, y)        
-        # roc_auc, fpr95 = odin.evaluate_scores(probs_laplace_id, probs_laplace_ood)
-        print(f'baseline -- AUC: {roc_auc}, FPR: {fpr95}, detection rate: {1-fpr95}')
-
-
-          
+                  
     if not run_gridsearch and not os.path.exists(results_gridsearch_csv):
         raise ValueError('must run grid search.')
           
@@ -213,8 +178,49 @@ def main(exp_dir, config_file, seed, run_gridsearch=True, run_plot=True, run_eva
     if run_eval:
         dl_in = dataloader['test']['p']
         dl_out = dataloader['test']['q']
-        df = pd.read_csv(results_gridsearch_csv)
-        eval_best_param(dl_in, dl_out, model, df, results_test_csv)
+        
+        #TODO: temper epsi as input params
+        temper, epsi = select_best_param(results_gridsearch_csv)
+        
+        df = eval_best_param(dl_in, dl_out, model, temper, epsi, results_test_csv)
+
+        run_la_redux = True
+        if run_la_redux:
+            from laplace import Laplace
+        
+            
+            print('--------------------------')
+
+            scores_id = predict(dataloader['validation']['p'], model, laplace=False)
+            scores_ood = predict(dataloader['validation']['q'], model, laplace=False)
+            x = scores_id.max(-1)
+            y = scores_ood.max(-1)
+            roc_auc, fpr95 = odin.evaluate_scores(x, y)
+            print(f'baseline -- AUC: {roc_auc}, FPR: {fpr95}, detection rate: {1-fpr95}')
+
+            row = {'temperature': np.nan, 'epsilon': np.nan, 'method': 'baseline_ref',
+                'rocauc': roc_auc, 'fpr95': fpr95}            
+            df = df.append(row, ignore_index=True)
+
+            print('--------------------------')
+            
+            la = Laplace(model, 'classification',
+                subset_of_weights='last_layer',
+                hessian_structure='kron')
+            la.fit(dataloader['train']['p'])
+            la.optimize_prior_precision(method='marglik')
+            probs_laplace_id = predict(dataloader['validation']['p'], la, laplace=True)
+            probs_laplace_ood = predict(dataloader['validation']['q'], la, laplace=True)
+            x = probs_laplace_id.max(-1)
+            y = probs_laplace_ood.max(-1)
+            roc_auc, fpr95 = odin.evaluate_scores(x, y)        
+            print(f'laplace -- AUC: {roc_auc}, FPR: {fpr95}, detection rate: {1-fpr95}')
+
+            row = {'temperature': np.nan, 'epsilon': np.nan, 'method': 'laplace',
+                'rocauc': roc_auc, 'fpr95': fpr95}            
+            df = df.append(row, ignore_index=True)
+    
+            df.to_csv(results_test_csv)        
     
     
 if __name__ == "__main__":
@@ -228,6 +234,7 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--config_file", action="store", type=str, help="config file", default='./config/odin_mnist_no5_10outputs.yaml'
+        # "--config_file", action="store", type=str, help="config file", default='./config/odin_camelyon_no3.yaml'
     )  
     parser.add_argument(
         "--seed", dest="seed", action="store", default=1000, type=int, help="random seed",

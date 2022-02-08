@@ -77,10 +77,10 @@ def predict_scores(net1, device, dataloader, noiseMagnitude1, temper, num_images
         # FIXME rebuttal SUPERHACK - must make configurable!!
         # mnist (0.1307,), (0.3081,)
         # camelyon [0.229, 0.224, 0.225]
-        # gradient[0][0] = gradient[0][0]/0.3081
-        gradient[0][0] = (gradient[0][0] )/ 0.229
-        gradient[0][1] = (gradient[0][1] )/ 0.224
-        gradient[0][2] = (gradient[0][2])/ 0.225
+        gradient[0][0] = gradient[0][0]/0.3081
+        # gradient[0][0] = (gradient[0][0] )/ 0.229
+        # gradient[0][1] = (gradient[0][1] )/ 0.224
+        # gradient[0][2] = (gradient[0][2])/ 0.225
         # gradient[0][0] = (gradient[0][0] )/(63.0/255.0)
         # gradient[0][1] = (gradient[0][1] )/(62.1/255.0)
         # gradient[0][2] = (gradient[0][2])/(66.7/255.0)

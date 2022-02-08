@@ -22,7 +22,7 @@ def get_classification_model(params):
     #FIXME make sure in the end, all trained models are loadable. Consistency issue with self and self.model
         
     if params['task_classifier_type'] == 'mnist': 
-        model = MNISTNet(checkpoint_path=checkpoint_path, n_outputs=params['n_outputs'], remove_digit=params['remove_idx'])
+        model = MNISTNet(checkpoint_path=checkpoint_path, n_outputs=params['n_outputs'])
     elif params['task_classifier_type'] == 'camelyon': 
         # TODO: remove_idx config for camelyon as well
         outer_model = CamelyonDensenet(checkpoint_path=checkpoint_path)
