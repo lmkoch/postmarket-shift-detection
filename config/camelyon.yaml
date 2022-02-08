@@ -28,7 +28,7 @@ model:
     img_size: 96
     channels: 3
     task_classifier_type: 'camelyon'
-    task_classifier_path: './experiments/classification-models/camelyon17_seed9_best_model.pth'
+    task_classifier_path: './experiments_rebuttal/classification-models/camelyon17_seed9_best_model.pth'
 trainer:
     epochs: 1
     learning_rate: 1.e-5

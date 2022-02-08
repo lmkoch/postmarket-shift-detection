@@ -28,7 +28,7 @@ model:
     img_size: 32
     channels: 1
     task_classifier_type: 'mnist'
-    task_classifier_path: './experiments/classification-models/mnist.pt'
+    task_classifier_path: './experiments_rebuttal/classification-models/mnist.pt'
 trainer:
     epochs: 3
     learning_rate: 1.e-5

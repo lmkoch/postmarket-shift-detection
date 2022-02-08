@@ -64,11 +64,11 @@ if __name__ == '__main__':
     #
 
     parser = argparse.ArgumentParser(
-        description="Run single experiment"
+        description="Prepare experiments"
     )
     parser.add_argument(
         "--exp_base_dir", action="store", type=str, help="experiment folder",
-        default='./experiments'
+        default='./experiments_rebuttal'
     )
       
     args = parser.parse_args()
@@ -78,11 +78,15 @@ if __name__ == '__main__':
     mnist_mmd_hyperparam_sweep(config_file, exp_dir)
 
     exp_dir = os.path.join(args.exp_base_dir, 'hypothesis-tests', 'mnist')
-    config_file = './config/mnist.yaml'    
-    exps_mmd_final_params(config_file, exp_dir, subgroup_index=5)
+    config_file = './config/mnist.yaml'   
+    
+    for idx in range(10): 
+        exps_mmd_final_params(config_file, exp_dir, subgroup_index=idx)
 
     exp_dir = os.path.join(args.exp_base_dir, 'hypothesis-tests', 'camelyon')
     config_file = './config/camelyon.yaml'
-    exps_mmd_final_params(config_file, exp_dir, subgroup_index=2)
+    
+    for idx in range(5):
+        exps_mmd_final_params(config_file, exp_dir, subgroup_index=idx)
 
     print('Prepped experiments.')
