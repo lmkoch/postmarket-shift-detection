@@ -27,7 +27,7 @@ dataset:
 model:
     n_outputs: 10 
     task_classifier_type: 'mnist'
-    task_classifier_path: './experiments/classification-models/mnist_no5.pt'
+    task_classifier_path: './experiments_rebuttal/classification-models/mnist_no5.pt'
 
 
 
