@@ -27,6 +27,7 @@ dataset:
 model:
     img_size: 32
     channels: 1
+    n_outputs: 10 
     task_classifier_type: 'mnist'
     task_classifier_path: './experiments_rebuttal/classification-models/mnist.pt'
 trainer:
