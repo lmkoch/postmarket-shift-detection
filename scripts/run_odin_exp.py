@@ -32,6 +32,9 @@ def run_grid_search(dl_in, dl_out, model, temperatures, epsilons, num_img, resul
             df_in = odin.predict_scores(model, device, dl_in, epsi, temper, num_img)
             df_out = odin.predict_scores(model, device, dl_out, epsi, temper, num_img)
         
+            print(f'-----------------------------------------------------')
+            print(f'Hyperparams t={temper}, eps={epsi}')
+
             for method in ['base', 'odin']:
                 roc_auc, fpr95 = odin.evaluate_scores(df_in[df_in['method'] == method]['score'], 
                                                 df_out[df_out['method'] == method]['score'])
@@ -40,10 +43,7 @@ def run_grid_search(dl_in, dl_out, model, temperatures, epsilons, num_img, resul
                     'rocauc': roc_auc, 'fpr95': fpr95}            
                 df = df.append(row, ignore_index=True)
             
-            print(f'-----------------------------------------------------')
-            print(f'Hyperparams t={temper}, eps={epsi}')
-            print(f'AUC: {roc_auc}')
-            print(f'FPR95: {fpr95}')
+                print(f'{method} AUC: {roc_auc}, FPR95: {fpr95}')
 
     # validation results:        
     df.to_csv(results_gridsearch_csv)
@@ -95,7 +95,8 @@ def eval_best_param(dl_in, dl_out, model, temper, epsi, results_csv):
     
     device = torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
 
-    num_img = len(dl_in.dataset)
+    # num_img = len(dl_in.dataset)
+    num_img = None
 
     df_in = odin.predict_scores(model, device, dl_in, epsi, temper, num_img)
     df_out = odin.predict_scores(model, device, dl_out, epsi, temper, num_img)
@@ -165,7 +166,7 @@ def main(exp_dir, config_file, seed, run_gridsearch=True, run_plot=True, run_eva
         raise ValueError('must run grid search.')
           
     if run_gridsearch:
-        num_img = 1000
+        num_img = None
         dl_in = dataloader['validation']['p']
         dl_out = dataloader['validation']['q']
         run_grid_search(dl_in, dl_out, model, temperatures, epsilons, 
@@ -175,52 +176,57 @@ def main(exp_dir, config_file, seed, run_gridsearch=True, run_plot=True, run_eva
         df = pd.read_csv(results_gridsearch_csv)
         plot_gridsearch_results(df, temperatures, epsilons, log_dir)
       
-    if run_eval:
-        dl_in = dataloader['test']['p']
-        dl_out = dataloader['test']['q']
-        
+    if run_eval:        
         #TODO: temper epsi as input params
         temper, epsi = select_best_param(results_gridsearch_csv)
         
-        df = eval_best_param(dl_in, dl_out, model, temper, epsi, results_test_csv)
-
-        run_la_redux = True
-        if run_la_redux:
-            from laplace import Laplace
-        
-            
-            print('--------------------------')
-
-            scores_id = predict(dataloader['validation']['p'], model, laplace=False)
-            scores_ood = predict(dataloader['validation']['q'], model, laplace=False)
-            x = scores_id.max(-1)
-            y = scores_ood.max(-1)
-            roc_auc, fpr95 = odin.evaluate_scores(x, y)
-            print(f'baseline -- AUC: {roc_auc}, FPR: {fpr95}, detection rate: {1-fpr95}')
-
-            row = {'temperature': np.nan, 'epsilon': np.nan, 'method': 'baseline_ref',
-                'rocauc': roc_auc, 'fpr95': fpr95}            
-            df = df.append(row, ignore_index=True)
-
-            print('--------------------------')
-            
-            la = Laplace(model, 'classification',
-                subset_of_weights='last_layer',
-                hessian_structure='kron')
-            la.fit(dataloader['train']['p'])
-            la.optimize_prior_precision(method='marglik')
-            probs_laplace_id = predict(dataloader['validation']['p'], la, laplace=True)
-            probs_laplace_ood = predict(dataloader['validation']['q'], la, laplace=True)
-            x = probs_laplace_id.max(-1)
-            y = probs_laplace_ood.max(-1)
-            roc_auc, fpr95 = odin.evaluate_scores(x, y)        
-            print(f'laplace -- AUC: {roc_auc}, FPR: {fpr95}, detection rate: {1-fpr95}')
-
-            row = {'temperature': np.nan, 'epsilon': np.nan, 'method': 'laplace',
-                'rocauc': roc_auc, 'fpr95': fpr95}            
-            df = df.append(row, ignore_index=True)
+        eval(dataloader, model, temper, epsi, results_test_csv) 
     
-            df.to_csv(results_test_csv)        
+    
+def eval(dataloader, model, temper, epsi, results_test_csv):
+
+    dl_in = dataloader['test']['p']
+    dl_out = dataloader['test']['q']
+        
+    df = eval_best_param(dl_in, dl_out, model, temper, epsi, results_test_csv)
+
+    run_la_redux = True
+    if run_la_redux:
+        from laplace import Laplace
+    
+        
+        print('--------------------------')
+
+        scores_id = predict(dataloader['test']['p'], model, laplace=False)
+        scores_ood = predict(dataloader['test']['q'], model, laplace=False)
+        x = scores_id.max(-1)
+        y = scores_ood.max(-1)
+        roc_auc, fpr95 = odin.evaluate_scores(x, y)
+        print(f'baseline -- AUC: {roc_auc}, FPR: {fpr95}, detection rate: {1-fpr95}')
+
+        row = {'temperature': np.nan, 'epsilon': np.nan, 'method': 'baseline_ref',
+            'rocauc': roc_auc, 'fpr95': fpr95}            
+        df = df.append(row, ignore_index=True)
+
+        print('--------------------------')
+        
+        la = Laplace(model, 'classification',
+            subset_of_weights='last_layer',
+            hessian_structure='kron')
+        la.fit(dataloader['train']['p'])
+        la.optimize_prior_precision(method='marglik')
+        probs_laplace_id = predict(dataloader['test']['p'], la, laplace=True)
+        probs_laplace_ood = predict(dataloader['test']['q'], la, laplace=True)
+        x = probs_laplace_id.max(-1)
+        y = probs_laplace_ood.max(-1)
+        roc_auc, fpr95 = odin.evaluate_scores(x, y)        
+        print(f'laplace -- AUC: {roc_auc}, FPR: {fpr95}, detection rate: {1-fpr95}')
+
+        row = {'temperature': np.nan, 'epsilon': np.nan, 'method': 'laplace',
+            'rocauc': roc_auc, 'fpr95': fpr95}            
+        df = df.append(row, ignore_index=True)
+
+        df.to_csv(results_test_csv)  
     
     
 if __name__ == "__main__":
