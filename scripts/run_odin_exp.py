@@ -201,20 +201,6 @@ def eval(dataloader, model, temper, epsi, results_test_csv):
     if run_la_redux:
         from laplace import Laplace
     
-        
-        print('--------------------------')
-
-        scores_id = predict(dataloader['test']['p'], model, laplace=False)
-        scores_ood = predict(dataloader['test']['q'], model, laplace=False)
-        x = scores_id.max(-1)
-        y = scores_ood.max(-1)
-        roc_auc, fpr95 = odin.evaluate_scores(x, y)
-        print(f'baseline -- AUC: {roc_auc}, FPR: {fpr95}, detection rate: {1-fpr95}')
-
-        row = {'temperature': np.nan, 'epsilon': np.nan, 'method': 'baseline_ref',
-            'rocauc': roc_auc, 'fpr95': fpr95}            
-        df = df.append(row, ignore_index=True)
-
         print('--------------------------')
         
         la = Laplace(model, 'classification',

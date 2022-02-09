@@ -243,7 +243,7 @@ def plot_subgroup_results_mnist_camelyon_appendix(eval_dir, exp_dir_mnist, exp_d
         df[dataset]['mixing_proportions'] = w         
         df[dataset]['subgroup_idx'] = idx         
              
-    out_fig_weights = os.path.join(eval_dir, 'panel_complete.png')
+    out_fig_weights = os.path.join(eval_dir, 'panel_complete_appendix_rebuttal.png')
 
     weights = [1, 5, 10, 100]
         
