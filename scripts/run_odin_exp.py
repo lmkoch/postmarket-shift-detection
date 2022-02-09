@@ -174,10 +174,7 @@ def main(exp_dir, config_file, seed, run_gridsearch=True, run_plot=True, run_eva
         df = pd.read_csv(results_gridsearch_csv)
         plot_gridsearch_results(df, temperatures, epsilons, log_dir)
       
-    if run_eval:        
-        #TODO: temper epsi as input params
-        temper, epsi = select_best_param(results_gridsearch_csv)
-        
+    if run_eval:                
         if temper != None and epsi != None:        
             pass
         elif os.path.exists(results_gridsearch_csv):
