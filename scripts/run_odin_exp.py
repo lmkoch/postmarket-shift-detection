@@ -246,7 +246,7 @@ if __name__ == "__main__":
         "--temperature", dest="temperature", action="store", default=None, type=int, help="temperature for ODIN",
     )
     parser.add_argument(
-        "--epsilon", dest="epsilon", action="store", default=None, type=int, help="epsilon for ODIN",
+        "--epsilon", dest="epsilon", action="store", default=None, type=float, help="epsilon for ODIN",
     )
    
     args = parser.parse_args()
