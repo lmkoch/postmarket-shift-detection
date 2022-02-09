@@ -131,7 +131,8 @@ def predict(dataloader, model, laplace=False):
 
     return torch.cat(py).cpu().numpy()
 
-def main(exp_dir, config_file, seed, run_gridsearch=True, run_plot=True, run_eval=True):
+def main(exp_dir, config_file, seed, run_gridsearch=True, run_plot=True, run_eval=True,
+         temper=None, epsi=None):
 
     exp_name = create_exp_from_config(config_file, args.exp_dir)
 
@@ -180,8 +181,14 @@ def main(exp_dir, config_file, seed, run_gridsearch=True, run_plot=True, run_eva
         #TODO: temper epsi as input params
         temper, epsi = select_best_param(results_gridsearch_csv)
         
+        if temper != None and epsi != None:        
+            pass
+        elif os.path.exists(results_gridsearch_csv):
+            temper, epsi = select_best_param(results_gridsearch_csv)
+        else:
+            raise ValueError('must run grid search or provide hyperparams.')
+        
         eval(dataloader, model, temper, epsi, results_test_csv) 
-    
     
 def eval(dataloader, model, temper, epsi, results_test_csv):
 
@@ -248,13 +255,20 @@ if __name__ == "__main__":
     parser.add_argument('--run_gridsearch', default=True, type=bool, help='gridsearch flag')
     parser.add_argument('--run_plot', default=True, type=bool, help='plot flag')
     parser.add_argument('--run_eval', default=True, type=bool, help='eval flag')
+
+    parser.add_argument(
+        "--temperature", dest="temperature", action="store", default=None, type=int, help="temperature for ODIN",
+    )
+    parser.add_argument(
+        "--epsilon", dest="epsilon", action="store", default=None, type=int, help="epsilon for ODIN",
+    )
    
     args = parser.parse_args()
              
     os.makedirs(args.exp_dir, exist_ok=True)
                        
     main(args.exp_dir, args.config_file, args.seed, run_gridsearch=args.run_gridsearch, 
-         run_plot=args.run_plot, run_eval=args.run_eval)
+         run_plot=args.run_plot, run_eval=args.run_eval, temper=args.temperature, epsi=args.epsilon)
 
     print('done')
 

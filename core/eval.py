@@ -31,6 +31,10 @@ def eval(exp_dir, exp_name, params, seed, split, sample_sizes=[10, 30, 50, 100, 
     log_dir = os.path.join(exp_dir, exp_name)
     out_csv = os.path.join(log_dir, f'{split}_consistency_analysis.csv')
 
+    if os.path.exists(out_csv):
+        print(f'Results exists - do not calculate again.')
+        return
+
     df = pd.DataFrame(columns=['sample_size','power', 'power_stderr', 
                             'type_1err', 'type_1err_stderr', 'method'])
 

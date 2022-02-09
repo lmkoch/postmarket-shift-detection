@@ -48,7 +48,8 @@ def load_all_results(hashes, exp_dir, split='test'):
         if os.path.exists(results_file):
             all_results.append(pd.read_csv(results_file))
         else:
-            raise ValueError('results are not available. run consistency analysis first')
+            print(f'Warning: file not available: {results_file}. Continue without')
+            # raise ValueError('results are not available. run consistency analysis first')
                                                     
     configs = pd.DataFrame.from_dict(all_configs, orient='index')
     results = pd.concat(all_results)
@@ -133,7 +134,7 @@ def plot_subgroup_results_mnist_camelyon(eval_dir, exp_dir_mnist, exp_dir_camely
         df[dataset] = load_all_results(hashes, exp_dir[dataset], split='test')   
         df[dataset]['mixing_proportions'] = np.array(df[dataset]['dataset_dl_q_sampling_weights'].tolist())[:,subgroup_idx[dataset]]
      
-    out_fig_weights = os.path.join(eval_dir, 'panel_complete.png')
+    out_fig_weights = os.path.join(eval_dir, 'panel_complete_rebuttal.png')
 
     weights = [1, 5, 10, 100]
         
@@ -214,6 +215,81 @@ def plot_subgroup_results_mnist_camelyon(eval_dir, exp_dir_mnist, exp_dir_camely
     plt.tight_layout()
     fig.savefig(out_fig_weights)
 
+def plot_subgroup_results_mnist_camelyon_appendix(eval_dir, exp_dir_mnist, exp_dir_camelyon):
+
+    os.makedirs(eval_dir, exist_ok=True)
+
+    set_rcParams()
+
+    datasets = ['mnist', 'camelyon']
+
+    exp_dir = {'mnist':exp_dir_mnist,
+               'camelyon': exp_dir_camelyon}
+     
+    subgroup_idx = {'mnist': 5,
+                    'camelyon': 2}
+    
+    df = {'mnist': None, 'camelyon': None}
+    for dataset in datasets:
+        
+        hashes = os.listdir(exp_dir[dataset])
+
+        df[dataset] = load_all_results(hashes, exp_dir[dataset], split='test')   
+        
+        sampling_weights = np.array(df[dataset]['dataset_dl_q_sampling_weights'].tolist())
+        
+        w, idx = np.max(sampling_weights, axis=1), np.argmax(sampling_weights, axis=1)
+                        
+        df[dataset]['mixing_proportions'] = w         
+        df[dataset]['subgroup_idx'] = idx         
+             
+    out_fig_weights = os.path.join(eval_dir, 'panel_complete.png')
+
+    weights = [1, 5, 10, 100]
+        
+    methods = ['mmd', 'rabanser']
+    legend_labels = ['MMD-D (MNIST)', 'MMD-D (Camelyon)', 'MUKS (MNIST)', 'MUKS (Camelyon)']         
+
+    fig, ax = plt.subplots(2, len(weights), figsize=(4, 5), sharey='row')
+    
+    for row_idx, dset in enumerate(datasets):
+    
+        for idx, weight in enumerate(weights):
+            row_ax = ax[row_idx, :]
+            
+            df['mnist']['dataset'] = 'mnist'
+            df['camelyon']['dataset'] = 'camelyon'
+                    
+            # whole_df = pd.concat([df['mnist'], df['camelyon']])
+            # tmp = whole_df[whole_df['mixing_proportions'] == weight].reset_index(drop=True)
+            # mnist = df['mnist'][df['mnist']['mixing_proportions'] == weight].reset_index(drop=True)
+            # cam = df['camelyon'][df['camelyon']['mixing_proportions'] == weight].reset_index(drop=True)
+
+            
+            tmp = df[dset][df[dset]['mixing_proportions'] == weight].reset_index(drop=True)
+            
+            row_ax[idx].set_title(f'w={weight}')
+            sns.lineplot(data=tmp, x='sample_size', y='power',
+                                hue='method', hue_order=methods,
+                                style='subgroup_idx', markers=True, dashes=False,
+                                ax=row_ax[idx])       
+                
+            row_ax[idx].set_ylim(0, 1.05)     
+            row_ax[idx].set(xscale="log")    
+            row_ax[idx].grid(axis='x') 
+
+            row_ax[idx].set_ylabel('Test power')   
+            row_ax[idx].set_xlabel(r'Sample size m')  
+            
+            if idx > 0:
+                row_ax[idx].get_legend().remove()
+            # else:
+            #     row_ax[idx].legend(legend_labels, loc='best', frameon=False)           
+        
+                   
+    plt.tight_layout()
+    fig.savefig(out_fig_weights)
+
 
 if __name__ == '__main__':
 
@@ -223,11 +299,15 @@ if __name__ == '__main__':
     )
     parser.add_argument(
         "--exp_dir_mnist", action="store", type=str, help="mnist experiment folder",
-        default='./experiments/hypothesis-tests/mnist'
+        # default='./experiments/hypothesis-tests/mnist'
+        default='./experiments_rebuttal/hypothesis-tests/mnist'
+        # default='./experiments_rebuttal/toyset'
     )
     parser.add_argument(
         "--exp_dir_camelyon", action="store", type=str, help="camelyon experiment folder",
-        default='./experiments/hypothesis-tests/camelyon'
+        default='./experiments_rebuttal/hypothesis-tests/camelyon'
+        # default='./experiments/hypothesis-tests/camelyon'
+        # default='./experiments_rebuttal/toyset'
     )
     parser.add_argument(
         "--exp_dir_hyperparam", action="store", type=str, help="hyperparam search exp folder",
@@ -236,7 +316,7 @@ if __name__ == '__main__':
     parser.add_argument(
         "--eval_dir", action="store", type=str, 
         help="Results directory (will be created if it does not exist)",
-        default='./experiments/eval'
+        default='./experiments_rebuttal/eval'
     ) 
     parser.add_argument(
         "--run_hyperparam", action="store", type=bool, help="",
@@ -244,16 +324,19 @@ if __name__ == '__main__':
     )   
     args = parser.parse_args()
            
-    # plot example data
-    hashes = os.listdir(args.exp_dir_mnist)
-    for exp_name in hashes:
-        save_example_images(args.exp_dir_mnist, exp_name)
+    # # plot example data
+    # hashes = os.listdir(args.exp_dir_mnist)
+    # for exp_name in hashes:
+    #     save_example_images(args.exp_dir_mnist, exp_name)
 
-    hashes = os.listdir(args.exp_dir_camelyon)
-    for exp_name in hashes:
-        save_example_images(args.exp_dir_camelyon, exp_name)
+    # hashes = os.listdir(args.exp_dir_camelyon)
+    # for exp_name in hashes:
+    #     save_example_images(args.exp_dir_camelyon, exp_name)
 
-    plot_subgroup_results_mnist_camelyon(args.eval_dir, args.exp_dir_mnist, args.exp_dir_camelyon)
+    # plot_subgroup_results_mnist_camelyon(args.eval_dir, args.exp_dir_mnist, args.exp_dir_camelyon)
+
+    plot_subgroup_results_mnist_camelyon_appendix(args.eval_dir, args.exp_dir_mnist, args.exp_dir_camelyon)
+
                                                    
     # model selection
     if args.run_hyperparam:
