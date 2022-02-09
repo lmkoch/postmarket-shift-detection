@@ -162,10 +162,7 @@ def main(exp_dir, config_file, seed, run_gridsearch=True, run_plot=True, run_eva
     ###############################################################################################################################
 
     model.eval()
-                  
-    if not run_gridsearch and not os.path.exists(results_gridsearch_csv):
-        raise ValueError('must run grid search.')
-          
+                            
     if run_gridsearch:
         num_img = None
         dl_in = dataloader['validation']['p']
@@ -238,9 +235,16 @@ if __name__ == "__main__":
     parser.add_argument(
         "--seed", dest="seed", action="store", default=1000, type=int, help="random seed",
     )
-    parser.add_argument('--run_gridsearch', default=True, type=bool, help='gridsearch flag')
-    parser.add_argument('--run_plot', default=True, type=bool, help='plot flag')
-    parser.add_argument('--run_eval', default=True, type=bool, help='eval flag')
+    # parser.add_argument('--run_gridsearch', default=True, type=bool, help='gridsearch flag')
+    # parser.add_argument('--run_plot', default=True, type=bool, help='plot flag')
+    # parser.add_argument('--run_eval', default=True, type=bool, help='eval flag')    
+    
+    parser.add_argument('--run_gridsearch', dest='run_gridsearch', action='store_true', 
+                        help="gridsearch flag", default=False)      
+    parser.add_argument('--run_plot', dest='run_plot', action='store_true', 
+                        help="plot flag", default=False)      
+    parser.add_argument('--run_eval', dest='run_eval', action='store_true', 
+                        help="eval flag", default=False)      
 
     parser.add_argument(
         "--temperature", dest="temperature", action="store", default=None, type=int, help="temperature for ODIN",
