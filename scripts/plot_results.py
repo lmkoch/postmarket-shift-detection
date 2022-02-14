@@ -59,6 +59,39 @@ def load_all_results(hashes, exp_dir, split='test'):
     
     return df
 
+def load_ood_results(hashes, exp_dir, split='test'):
+
+    all_configs = {}
+    all_results = []
+
+    for exp_name in hashes:
+        config_file = os.path.join(exp_dir, exp_name, 'config.yaml')
+        with open(config_file) as fhandle:
+            params = yaml.safe_load(fhandle)
+        
+        all_configs[exp_name] = flatten_dict(params, sep='_')
+    
+        results_file = os.path.join(exp_dir, exp_name, f'ood_{split}.csv')
+        
+        if os.path.exists(results_file):
+            df = pd.read_csv(results_file)
+            df['exp_hash'] = exp_name
+            all_results.append(df)
+        else:
+            print(f'Warning: file not available: {results_file}. Continue without')
+            # raise ValueError('results are not available. run consistency analysis first')
+                                                    
+    configs = pd.DataFrame.from_dict(all_configs, orient='index')
+    results = pd.concat(all_results)
+        
+    configs.rename_axis('exp_hash', inplace=True)
+    results = results.set_index(['exp_hash'], drop=False)
+    df = configs.join(results)
+    
+    return df
+
+
+
 def mmd_model_selection(exp_dir, eval_dir):
     """Compare validation performance for different hyperparameter and model choices for MMD-D
     Requires consistency analysis to have been run before. 
@@ -244,52 +277,141 @@ def plot_subgroup_results_mnist_camelyon_appendix(eval_dir, exp_dir_mnist, exp_d
         df[dataset]['subgroup_idx'] = idx         
              
     out_fig_weights = os.path.join(eval_dir, 'panel_complete_appendix_rebuttal.png')
+    out_fig_scatter = os.path.join(eval_dir, 'muks_vs_mmdd_appendix_rebuttal.png')
 
     weights = [1, 5, 10, 100]
         
     methods = ['mmd', 'rabanser']
     legend_labels = ['MMD-D (MNIST)', 'MMD-D (Camelyon)', 'MUKS (MNIST)', 'MUKS (Camelyon)']         
 
-    fig, ax = plt.subplots(2, len(weights), figsize=(4, 5), sharey='row')
-    
-    for row_idx, dset in enumerate(datasets):
-    
-        for idx, weight in enumerate(weights):
-            row_ax = ax[row_idx, :]
-            
-            df['mnist']['dataset'] = 'mnist'
-            df['camelyon']['dataset'] = 'camelyon'
-                    
-            # whole_df = pd.concat([df['mnist'], df['camelyon']])
-            # tmp = whole_df[whole_df['mixing_proportions'] == weight].reset_index(drop=True)
-            # mnist = df['mnist'][df['mnist']['mixing_proportions'] == weight].reset_index(drop=True)
-            # cam = df['camelyon'][df['camelyon']['mixing_proportions'] == weight].reset_index(drop=True)
-
-            
-            tmp = df[dset][df[dset]['mixing_proportions'] == weight].reset_index(drop=True)
-            
-            row_ax[idx].set_title(f'w={weight}')
-            sns.lineplot(data=tmp, x='sample_size', y='power',
-                                hue='method', hue_order=methods,
-                                style='subgroup_idx', markers=True, dashes=False,
-                                ax=row_ax[idx])       
-                
-            row_ax[idx].set_ylim(0, 1.05)     
-            row_ax[idx].set(xscale="log")    
-            row_ax[idx].grid(axis='x') 
-
-            row_ax[idx].set_ylabel('Test power')   
-            row_ax[idx].set_xlabel(r'Sample size m')  
-            
-            if idx > 0:
-                row_ax[idx].get_legend().remove()
-            # else:
-            #     row_ax[idx].legend(legend_labels, loc='best', frameon=False)           
+    fig, ax = plt.subplots(1, len(weights), figsize=(6, 2), sharey='row')
         
+    for idx, weight in enumerate(weights):
+        row_ax = ax
+        
+        df['mnist']['dataset'] = 'mnist'
+        dset = 'mnist'
+
+        tmp = df[dset][df[dset]['mixing_proportions'] == weight].reset_index(drop=True)
+        
+        row_ax[idx].set_title(f'w={weight}')
+        sns.lineplot(data=tmp, x='sample_size', y='power',
+                            hue='method', hue_order=methods,
+                            style='subgroup_idx', markers=True, dashes=False,
+                            ax=row_ax[idx])       
+            
+        row_ax[idx].set_ylim(0, 1.05)     
+        row_ax[idx].set(xscale="log")    
+        row_ax[idx].grid(axis='x') 
+
+        row_ax[idx].set_ylabel('Test power')   
+        row_ax[idx].set_xlabel(r'Sample size m')  
+        
+        # if idx < 3:
+        row_ax[idx].get_legend().remove()
+        # else:
+        #     row_ax[idx].legend(legend_labels, loc='best', frameon=False)           
                    
     plt.tight_layout()
     fig.savefig(out_fig_weights)
+     
+    pal = sns.color_palette(n_colors=2)
+    print(pal)
+      
+    small = df['mnist'][['sample_size', 'power', 'mixing_proportions', 'method', 'subgroup_idx']]
+    tmp = small
 
+    tmp_mmd = tmp[tmp['method'] == 'mmd']
+    tmp_muks = tmp[tmp['method'] == 'rabanser']
+
+    tmp_mmd = tmp_mmd.rename(columns={'power': 'power_mmd'})
+    tmp_muks = tmp_muks.rename(columns={'power': 'power_muks'})
+
+    joined = tmp_mmd.combine_first(tmp_muks)
+
+    fig,ax = plt.subplots( figsize=(3, 3), )
+    
+    sns.scatterplot(data=joined, y='power_mmd', x='power_muks', hue='subgroup_idx', ax=ax)
+
+    ax.set_ylabel('Test power (MMD-D)')   
+    ax.set_xlabel('Test power (MUKS)')  
+
+    ax.set_aspect('equal')
+    ax.legend(loc='lower right', frameon=False) 
+    
+    plt.tight_layout()
+    plt.savefig(out_fig_scatter)
+          
+    # fig,ax = plt.subplots()
+    
+    # joined['avg'] = 0.5* (joined['power_mmd'] + joined['power_muks'])
+    # joined['diff'] = joined['power_mmd'] - joined['power_muks']
+    
+    # sns.scatterplot(data=joined, x='avg', y='diff', hue='subgroup_idx', ax=ax)
+
+
+
+def generate_table_ood(eval_dir, exp_dir):
+
+    os.makedirs(eval_dir, exist_ok=True)
+
+    set_rcParams()
+    
+    df = {'mnist': None, 'camelyon': None}
+
+    hashes = os.listdir(exp_dir)
+
+    df = load_ood_results(hashes, exp_dir, split='test')
+    
+    
+    shift_type = np.array(df['dataset_dl_p_sampling_weights'].tolist()).sum(axis=1) == 9
+
+    sampling_weights = np.array(df['dataset_dl_q_sampling_weights'].tolist())
+    
+    idx = np.argmax(sampling_weights, axis=1)
+                  
+    shift_label = ['OOD' if ele else 'subgroup' for ele in shift_type]
+                    
+    df['subgroup_idx'] = idx         
+    df['shift_type'] = shift_label # True for OOD, False for subgroup
+    
+    
+    shift_types = ['OOD', 'subgroup']
+            
+    digits = range(10)
+    
+    df_small = df[['subgroup_idx', 'shift_type', 'fpr95', 'rocauc', 'method']]
+    df_small['tnr95'] = 1 - df_small['fpr95']
+
+    df_small = df_small.sort_values(by=['subgroup_idx', 'shift_type', 'method'])
+    
+    table_rows = []
+                
+    title_row_1 = 'P & Q & AUC & Detection rate \n'
+    table_rows.append(title_row_1)
+    
+    for shift_type in shift_types:
+        
+        for digit in digits:
+            
+            p_label = f'MNIST-no-{digit}' if shift_type == 'OOD' else 'MNIST-all'
+            q_label = f'MNIST-{digit}'
+            
+            row_sel = df_small[(df_small['subgroup_idx'] == digit) & (df_small['shift_type'] == shift_type)]
+    
+            auc_str = ' / '.join(f'{x:.2f}' for x in row_sel['rocauc'].tolist())
+            tnr_str = ' / '.join(f'{x:.2f}' for x in row_sel['tnr95'].tolist())
+    
+            row = f'{p_label} & {q_label} & {auc_str} & {tnr_str} \\\\ \n'
+            
+            table_rows.append(row)
+                    
+        table_rows.append('\hline \n')
+       
+    table_file = os.path.join(eval_dir, 'ood_table.txt')
+    with open(table_file, 'w') as f:
+        f.writelines(table_rows)
+        
 
 if __name__ == '__main__':
 
@@ -313,6 +435,13 @@ if __name__ == '__main__':
         "--exp_dir_hyperparam", action="store", type=str, help="hyperparam search exp folder",
         default='./experiments/hypothesis-tests/mnist_hyperparam'
     )
+
+    parser.add_argument(
+        "--exp_dir_ood", action="store", type=str, help="hyperparam search exp folder",
+        default='./experiments_rebuttal/individual-ood'
+    )
+    
+    
     parser.add_argument(
         "--eval_dir", action="store", type=str, 
         help="Results directory (will be created if it does not exist)",
@@ -334,6 +463,8 @@ if __name__ == '__main__':
     #     save_example_images(args.exp_dir_camelyon, exp_name)
 
     # plot_subgroup_results_mnist_camelyon(args.eval_dir, args.exp_dir_mnist, args.exp_dir_camelyon)
+
+    generate_table_ood(args.eval_dir, args.exp_dir_ood)
 
     plot_subgroup_results_mnist_camelyon_appendix(args.eval_dir, args.exp_dir_mnist, args.exp_dir_camelyon)
 
