@@ -167,6 +167,11 @@ class Trainer:
         running_rejects_h0 = 0.0
         running_loss = 0.0
         
+        mmd2_h1 = []
+        var_h1 = []
+        mmd2_h1_suth = []
+        var_h1_suth = []
+        
         for idx in range(num_batches):
             try:
                 _, (x_p, _) = next(iterator_p)
@@ -189,6 +194,28 @@ class Trainer:
             ep = self.model.ep
             sigma = self.model.sigma_sq
             sigma0_u = self.model.sigma0_sq
+                
+            # TODO: report:
+            # MMD(x,y), MMD(x,x), 
+            # VarEstMMD(x,y), VarEstMMD(x,x) (from formula)
+            # Var_calculated(x,y) / (x,x) (from repetitions)
+            # lambda
+            # TODO: Make a nice plot of all these quantities
+            # TODO: make sure var_est is what I expect (var, not std, or vice versa)
+            m, n = x_p.shape[0], x_q.shape[0]    
+            mmd2, varEst, _ = mmd_and_var(feat_p, feat_q, 
+                                          x_p.view(m, -1), x_q.view(n, -1), 
+                                          sigma0_u, sigma, ep)
+            mmd2_h1.append(mmd2)
+            var_h1.append(varEst)
+                        
+            mmd2_suth, varEst_suth = mmd_and_var(feat_p, feat_q, 
+                                          x_p.view(m, -1), x_q.view(n, -1), 
+                                          sigma0_u, sigma, ep, sutherland=True)
+                
+            mmd2_h1_suth.append(mmd2_suth)
+            var_h1_suth.append(varEst_suth)
+                
                 
             loss = self.loss_fn(feat_p, feat_q, x_p, x_q, sigma, sigma0_u, ep)
 
@@ -220,11 +247,22 @@ class Trainer:
             running_rejects_h0 += h_u_h0
             running_loss += loss.item()
       
+        mmd2_h1_sample_mean = torch.mean(torch.stack(mmd2_h1))
+        mmd2_h1_sample_var = torch.var(torch.stack(mmd2_h1))
+        mmd2_h1_sample_mean_varEst = torch.mean(torch.stack(var_h1))
+
+        mmd2_h1_sample_mean_suth = torch.mean(torch.stack(mmd2_h1_suth))
+        mmd2_h1_sample_mean_varEst_suth = torch.mean(torch.stack(var_h1_suth))
+
+      
         reject_rate = running_rejects / (idx+1)  
         reject_rate_h0 = running_rejects_h0 / (idx+1)             
         avg_loss = running_loss / (idx+1)
 
-        results = {'loss': avg_loss, 'reject_rate': reject_rate, 'type_1_err': reject_rate_h0}
+        results = {'loss': avg_loss, 'reject_rate': reject_rate, 'type_1_err': reject_rate_h0,
+                   'MMD2': mmd2_h1_sample_mean, 'MMD2_var_calc': mmd2_h1_sample_mean_varEst,
+                   'MMD2_suth': mmd2_h1_sample_mean_suth, 'MMD2_var_calc_suth': mmd2_h1_sample_mean_varEst_suth,
+                   'MMD2_var_batch': mmd2_h1_sample_var}
         
         if np.isnan(avg_loss):
             # the results are not valid
@@ -255,10 +293,22 @@ class Trainer:
             self.writer.add_scalar('val_reject_rate', val_results['reject_rate'], global_step)
             self.writer.add_scalar('val_type_1_err', val_results['type_1_err'], global_step)
             
+            self.writer.add_scalar('val_mmd2', val_results['MMD2'], global_step)
+            self.writer.add_scalar('val_mmd2_suth', val_results['MMD2_suth'], global_step)
+            self.writer.add_scalar('val_mmd2_var_calc', val_results['MMD2_var_calc'], global_step)
+            self.writer.add_scalar('val_mmd2_var_suth', val_results['MMD2_var_calc_suth'], global_step)
+            self.writer.add_scalar('val_mmd2_var_batch', val_results['MMD2_var_batch'], global_step)
+            
             self.writer.add_scalar('train_loss', train_results['loss'], global_step)
             self.writer.add_scalar('train_reject_rate', train_results['reject_rate'], global_step)
             self.writer.add_scalar('train_type_1_err', train_results['type_1_err'], global_step)
 
+            self.writer.add_scalar('train_mmd2', train_results['MMD2'], global_step)
+            self.writer.add_scalar('train_mmd2_suth', train_results['MMD2_suth'], global_step)
+            self.writer.add_scalar('train_mmd2_var_calc', train_results['MMD2_var_calc'], global_step)
+            self.writer.add_scalar('train_mmd2_var_suth', train_results['MMD2_var_calc_suth'], global_step)
+            self.writer.add_scalar('train_mmd2_var_batch', train_results['MMD2_var_batch'], global_step)
+            
             self.writer.add_image('train_images_p', train_results['img_p'], global_step)
             self.writer.add_image('train_images_q', train_results['img_q'], global_step)
             

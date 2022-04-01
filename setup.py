@@ -19,6 +19,7 @@ setup(name='subgroupshift',
           'tensorboard==2.7.0',
           'tqdm==4.62.3',
           'laplace-torch',
-          'wilds @ git+https://github.com/lmkoch/wilds.git'
+          'wilds @ git+https://github.com/lmkoch/wilds.git',
+          'multi_level_split @ git+https://github.com/lmkoch/multi-level-split'
         ],
         license='MIT')

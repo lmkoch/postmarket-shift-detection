@@ -19,11 +19,13 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--exp_dir", action="store", type=str, help="experiment folder",
-        default='./experiments/hypothesis-tests/mnist'
+        default='./experiments'
+        # default='./experiments/hypothesis-tests/mnist'
     )
     parser.add_argument(
         "--config_file", action="store", type=str, help="config file", 
-        default='./experiments/hypothesis-tests/mnist/5c3010e7e9f5de06c7d55ecbed422251/config.yaml'
+        default='./config/eyepacs_ethnicity.yaml'
+        # default='./experiments/hypothesis-tests/mnist/5c3010e7e9f5de06c7d55ecbed422251/config.yaml'
     )  
     parser.add_argument(
         "--seed", action="store", default=1000, type=int, help="random seed",

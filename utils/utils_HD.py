@@ -77,6 +77,8 @@ def h1_mean_var_gram(Kx, Ky, Kxy, is_var_computed, use_1sample_U=True):
     if not is_var_computed:
         return mmd2, None, Kxyxy
     hh = Kx+Ky-Kxy-Kxy.transpose(0,1)
+    # TODO This is from Serfling (Sec. 5.5), and e.g. Gretton 2012 p740. But does this
+    # correspond to variance term in Sutherland 2017??
     V1 = torch.dot(hh.sum(1)/ny,hh.sum(1)/ny) / ny
     V2 = (hh).sum() / (nx) / nx
     varEst = 4*(V1 - V2**2)
