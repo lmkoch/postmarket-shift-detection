@@ -1,29 +1,20 @@
-from typing import Dict
+import os
 from argparse import ArgumentError
+from typing import Dict
 
 import numpy as np
-
-from sklearn.model_selection import train_test_split
-
+import pandas as pd
 import torch
 import torchvision.transforms as transforms
-from torchvision import datasets
-from torch.utils.data import Subset
-
-from wilds.datasets.wilds_dataset import WILDSDataset
-from wilds.datasets.camelyon17_dataset import Camelyon17Dataset
-
-from utils.helpers import balanced_weights
-
-
-import os
-
-import pandas as pd
-from torchvision.datasets import VisionDataset
-
-from PIL import Image
-
 from multi_level_split.util import train_test_split as multilevel_split
+from PIL import Image
+from sklearn.model_selection import train_test_split
+from torch.utils.data import Subset
+from torchvision import datasets
+from torchvision.datasets import VisionDataset
+from utils.helpers import balanced_weights
+from wilds.datasets.camelyon17_dataset import Camelyon17Dataset
+from wilds.datasets.wilds_dataset import WILDSDataset
 
 
 def dataset_fn(seed: int, params_dict) -> Dict:
@@ -33,167 +24,175 @@ def dataset_fn(seed: int, params_dict) -> Dict:
         seed: random seed that will make shuffling and other random operations deterministic
     Returns:
         data_loaders: containing "train", "validation" and "test" data loaders
-    """    
+    """
     np.random.seed(seed)
 
-    required_keys = ['ds', 'dl']
+    required_keys = ["ds", "dl"]
 
     for ele in required_keys:
         assert ele in params_dict
 
     # TODO input validation - check that params_dict contains all the right keys
 
-    params_ds = params_dict['ds']
-    params_dl = params_dict['dl']
-    
-    dataloader = {'train': {}, 'val': {}, 'test': {}}
-    for p_q in ['p', 'q']:
-        
-        dataset = get_dataset(params_ds[p_q]['dataset'], 
-                              params_ds[p_q]['data_root'], 
-                              img_size=params_ds['img_size'],
-                              preproc_mean=params_ds['mean'],
-                              preproc_std=params_ds['std'])        
-        
-        for split in ['train', 'val', 'test']:
+    params_ds = params_dict["ds"]
+    params_dl = params_dict["dl"]
 
-            dataloader[split][p_q] = get_dataloader(dataset[split], 
-                                                    batch_size=params_dl['batch_size'],
-                                                    use_sampling=params_dl[p_q]['use_sampling'],
-                                                    sampling_by_variable=params_dl[p_q]['sampling_by_variable'],
-                                                    sampling_weights=params_dl[p_q]['sampling_weights'],
-                                                    num_workers=params_dl['num_workers'],
-                                                    pin_memory=params_dl['pin_memory']
-                                                    )
-        
+    dataloader = {"train": {}, "val": {}, "test": {}}
+    for p_q in ["p", "q"]:
+
+        dataset = get_dataset(
+            params_ds[p_q]["dataset"],
+            params_ds[p_q]["data_root"],
+            img_size=params_ds["img_size"],
+            preproc_mean=params_ds["mean"],
+            preproc_std=params_ds["std"],
+            subset_params=params_ds[p_q]["subset_params"],
+        )
+
+        for split in ["train", "val", "test"]:
+
+            dataloader[split][p_q] = get_dataloader(
+                dataset[split],
+                batch_size=params_dl["batch_size"],
+                use_sampling=params_dl[p_q]["use_sampling"],
+                sampling_by_variable=params_dl[p_q]["sampling_by_variable"],
+                sampling_weights=params_dl[p_q]["sampling_weights"],
+                num_workers=params_dl["num_workers"],
+                pin_memory=params_dl["pin_memory"],
+            )
+
     return {
-        "train": dataloader['train'],
-        "validation": dataloader['val'],
-        "test": dataloader['test'],
+        "train": dataloader["train"],
+        "validation": dataloader["val"],
+        "test": dataloader["test"],
     }
-    
-        
 
-def get_dataset(dataset_type: str, data_root: str, 
-                img_size, preproc_mean, preproc_std):
 
-    transform = transforms.Compose([transforms.Resize(img_size), 
-                        transforms.ToTensor(),
-                        transforms.Normalize(preproc_mean, preproc_std)])
+def get_dataset(
+    dataset_type: str, data_root: str, img_size, preproc_mean, preproc_std, subset_params=None
+):
+
+    transform = transforms.Compose(
+        [
+            transforms.Resize(img_size),
+            transforms.ToTensor(),
+            transforms.Normalize(preproc_mean, preproc_std),
+        ]
+    )
 
     dataset = {}
 
-    if dataset_type == 'mnist':        
-                        
-        mnist_train = datasets.MNIST(data_root, 
-                                    transform=transform,
-                                    download=True, 
-                                    train=True)
+    if dataset_type == "mnist":
 
-        dataset['test'] = datasets.MNIST(data_root,
-                                        transform=transform, 
-                                        download=True, 
-                                        train=False)
+        mnist_train = datasets.MNIST(data_root, transform=transform, download=True, train=True)
+
+        dataset["test"] = datasets.MNIST(
+            data_root, transform=transform, download=True, train=False
+        )
 
         train_indices, val_indices, _, _ = train_test_split(
             range(len(mnist_train)),
             mnist_train.targets,
             stratify=mnist_train.targets,
-            test_size=1./6,
+            test_size=1.0 / 6,
         )
 
         # generate subset based on indices
-        dataset['train'] = Subset(mnist_train, train_indices)
-        dataset['val'] = Subset(mnist_train, val_indices)
+        dataset["train"] = Subset(mnist_train, train_indices)
+        dataset["val"] = Subset(mnist_train, val_indices)
 
-    elif dataset_type == 'camelyon':
+    elif dataset_type == "camelyon":
 
-        full_dataset = LisaCamelyon17Dataset(root_dir=data_root, split_scheme='vanilla', 
-                                             download=True)
-        
-        dataset['train'] = full_dataset.get_subset('train', transform=transform)
-        dataset['val'] = full_dataset.get_subset('val', transform=transform)
-        dataset['test'] = full_dataset.get_subset('test', transform=transform)
+        full_dataset = LisaCamelyon17Dataset(
+            root_dir=data_root, split_scheme="vanilla", download=True
+        )
 
-    elif dataset_type == 'eyepacs':
-        
-        #TODO fix data_root relative to both image_dir and csv
+        dataset["train"] = full_dataset.get_subset("train", transform=transform)
+        dataset["val"] = full_dataset.get_subset("val", transform=transform)
+        dataset["test"] = full_dataset.get_subset("test", transform=transform)
+
+    elif dataset_type == "eyepacs":
+
+        # TODO fix data_root relative to both image_dir and csv
         # data_root = '/home/lkoch/mnt/cin_root/data/eyepacs/'
 
-        transform = transforms.Compose([transforms.ToTensor(), 
-                                        transforms.Resize(96), 
-                                        transforms.CenterCrop(96)])
+        transform = transforms.Compose(
+            [transforms.ToTensor(), transforms.Resize(96), transforms.CenterCrop(96)]
+        )
 
-        for split in ['train', 'val', 'test']:
-            dataset[split] = EyepacsDataset(data_root=data_root, split=split, transform=transform)
-
+        for split in ["train", "val", "test"]:
+            dataset[split] = EyepacsDataset(
+                data_root=data_root, split=split, transform=transform, subset_params=subset_params
+            )
 
     else:
-        raise NotImplementedError(f'Dataset not implemented: {dataset_type}')
+        raise NotImplementedError(f"Dataset not implemented: {dataset_type}")
 
     return dataset
 
 
-def get_dataloader(dataset, batch_size: int,
-                   use_sampling: bool,
-                   sampling_by_variable: str,
-                   sampling_weights: list,
-                   num_workers: int = 4,
-                   pin_memory: bool = True
-                   ):
-    """Get dataloader based on a dataset and minibatch sampling strategy 
+def get_dataloader(
+    dataset,
+    batch_size: int,
+    use_sampling: bool,
+    sampling_by_variable: str,
+    sampling_weights: list,
+    num_workers: int = 4,
+    pin_memory: bool = True,
+):
+    """Get dataloader based on a dataset and minibatch sampling strategy
 
     Args:
-        dataset (VisionDataset): 
+        dataset (VisionDataset):
         data_params (Dict): Minibatch sampling strategy
-        batch_size (int): 
+        batch_size (int):
 
     Returns:
-        Dataloader: 
+        Dataloader:
     """
 
     if use_sampling:
         # weights for balanced minibatches
-        weights_train = balanced_weights(dataset, 
-                                         rebalance_weights=sampling_weights, 
-                                         balance_variable=sampling_by_variable)
-        sampler = torch.utils.data.sampler.WeightedRandomSampler(weights_train, len(weights_train))  
-        dataloader_kwargs = {'sampler': sampler}
-    else:     
-        dataloader_kwargs = {'shuffle': True}
+        weights_train = balanced_weights(
+            dataset, rebalance_weights=sampling_weights, balance_variable=sampling_by_variable
+        )
+        sampler = torch.utils.data.sampler.WeightedRandomSampler(weights_train, len(weights_train))
+        dataloader_kwargs = {"sampler": sampler}
+    else:
+        dataloader_kwargs = {"shuffle": True}
 
     dataloader = torch.utils.data.DataLoader(
         dataset,
         batch_size=batch_size,
-        drop_last=True, 
+        drop_last=True,
         num_workers=num_workers,
-        pin_memory=pin_memory, 
-        **dataloader_kwargs
+        pin_memory=pin_memory,
+        **dataloader_kwargs,
     )
 
     return dataloader
 
-class SubgroupSampler(torch.utils.data.sampler.Sampler):
-    """Sample only specific labels
 
-    """
-    def __init__(self, data_source, label=5, subgroup='targets'):
-        
+class SubgroupSampler(torch.utils.data.sampler.Sampler):
+    """Sample only specific labels"""
+
+    def __init__(self, data_source, label=5, subgroup="targets"):
+
         subgroup = getattr(data_source, subgroup).clone().detach()
-        
+
         self.mask = subgroup == label
         self.indices = torch.nonzero(self.mask)
         self.data_source = data_source
 
     def __iter__(self):
-        
-        return iter([self.indices[i].item() for i in torch.randperm(len(self.indices))])    
+
+        return iter([self.indices[i].item() for i in torch.randperm(len(self.indices))])
 
     def __len__(self):
         return len(self.indices)
-    
-class LisaCamelyon17Dataset(Camelyon17Dataset):
 
+
+class LisaCamelyon17Dataset(Camelyon17Dataset):
     def get_subset(self, split, frac=1.0, transform=None):
         """
         Args:
@@ -214,8 +213,9 @@ class LisaCamelyon17Dataset(Camelyon17Dataset):
             split_idx = np.sort(np.random.permutation(split_idx)[:num_to_retain])
         subset = LisaWILDSSubset(self, split_idx, transform)
         return subset
-class LisaWILDSSubset(WILDSDataset):
 
+
+class LisaWILDSSubset(WILDSDataset):
     def __init__(self, dataset, indices, transform, do_transform_y=False):
         """
         This acts like `torch.utils.data.Subset`, but on `WILDSDatasets`.
@@ -229,10 +229,18 @@ class LisaWILDSSubset(WILDSDataset):
         """
         self.dataset = dataset
         self.indices = indices
-        inherited_attrs = ['_dataset_name', '_data_dir', '_collate',
-                           '_split_scheme', '_split_dict', '_split_names',
-                           '_y_size', '_n_classes',
-                           '_metadata_fields', '_metadata_map']
+        inherited_attrs = [
+            "_dataset_name",
+            "_data_dir",
+            "_collate",
+            "_split_scheme",
+            "_split_dict",
+            "_split_names",
+            "_y_size",
+            "_n_classes",
+            "_metadata_fields",
+            "_metadata_map",
+        ]
         for attr_name in inherited_attrs:
             if hasattr(dataset, attr_name):
                 setattr(self, attr_name, getattr(dataset, attr_name))
@@ -262,7 +270,7 @@ class LisaWILDSSubset(WILDSDataset):
     @property
     def metadata_array(self):
         return self.dataset.metadata_array[self.indices]
-    
+
     def eval(self, y_pred, y_true, metadata):
         return self.dataset.eval(y_pred, y_true, metadata)
 
@@ -272,90 +280,131 @@ class LisaWILDSSubset(WILDSDataset):
 
 
 class EyepacsDataset(VisionDataset):
-        
-    def __init__(self, data_root,
-                 root='', 
-                 transform=None, 
-                 target_transform=None,
-                 split='train'):
-        super(EyepacsDataset, self).__init__(root, transform=transform,
-                                    target_transform=target_transform)
-                
-        self.image_path = os.path.join(data_root, 'data_raw', 'images')
-        meta_csv = os.path.join(data_root, 'data_processed', 'metadata', 'metadata_image.csv')
+    def __init__(
+        self,
+        data_root,
+        root="",
+        transform=None,
+        target_transform=None,
+        split="train",
+        subset_params=None,
+    ):
+        super(EyepacsDataset, self).__init__(
+            root, transform=transform, target_transform=target_transform
+        )
+
+        self.image_path = os.path.join(data_root, "data_raw", "images")
+        meta_csv = os.path.join(data_root, "data_processed", "metadata", "metadata_image.csv")
         metadata_df = pd.read_csv(meta_csv)
 
-        self._split_dict = {
-            'train': 0,
-            'test': 1,
-            'val': 2
-        }
+        self._split_dict = {"train": 0, "test": 1, "val": 2}
         self._split_names = {
-            'train': 'Train',
-            'test': 'Test',
-            'val': 'Validation',
+            "train": "Train",
+            "test": "Test",
+            "val": "Validation",
         }
 
         if split not in self._split_dict:
-            raise ArgumentError(f'split not recognised: {split}')
+            raise ArgumentError(f"split not recognised: {split}")
 
-        dev, test = multilevel_split(metadata_df, 'image_id', 
-                                    split_by='patient_id', 
-                                    test_split=0.2,
-                                    seed=12345)
+        dev, test = multilevel_split(
+            metadata_df, "image_id", split_by="patient_id", test_split=0.2, seed=12345
+        )
 
-        train, val = multilevel_split(dev, 'image_id', 
-                                    split_by='patient_id', 
-                                    test_split=0.25,
-                                    seed=12345)
+        train, val = multilevel_split(
+            dev, "image_id", split_by="patient_id", test_split=0.25, seed=12345
+        )
 
-        data = {'train': train, 'val': val, 'test': test}
+        data = {"train": train, "val": val, "test": test}
 
         self._metadata_df = data[split]
 
         # declutter: keep only images with the following characteristics
-        sides = {'left': 1, 'right': 0}
-        fields = {'field 1': 1, 'field 2': 2, 'field 3': 3}
-        genders = {'Male': 0, 'Female': 1, 'Other': 2}
-        image_qualities = {'Insufficient for Full Interpretation': 0, 'Adequate': 1, 'Good': 2, 'Excellent': 3}
-        ethnicities = {'Latin American': 0, 'Caucasian': 1, 'African Descent': 2, 'Asian': 3, 'Indian subcontinent origin': 4,
-                       'Native American': 5, 'Multi-racial': 6}
+        sides = {"left": 1, "right": 0}
+        fields = {"field 1": 1, "field 2": 2, "field 3": 3}
+        genders = {"Male": 0, "Female": 1, "Other": 2}
+        image_qualities = {
+            "Insufficient for Full Interpretation": 0,
+            "Adequate": 1,
+            "Good": 2,
+            "Excellent": 3,
+        }
+        ethnicities = {
+            "Latin American": 0,
+            "Caucasian": 1,
+            "African Descent": 2,
+            "Asian": 3,
+            "Indian subcontinent origin": 4,
+            "Native American": 5,
+            "Multi-racial": 6,
+        }
 
         # filter
-        keep_fields = ['field 1']
-        keep_quality = ['Adequate', 'Good','Excellent']
-        
-        self._metadata_df = self._metadata_df.query(f'image_side in {list(sides)}')
-        self._metadata_df = self._metadata_df.query(f'image_field in {list(keep_fields)}')
-        self._metadata_df = self._metadata_df.query(f'patient_gender in {list(genders)}')
-        self._metadata_df = self._metadata_df.query(f'session_image_quality in {list(keep_quality)}')
-        self._metadata_df = self._metadata_df.query(f'patient_ethnicity in {list(ethnicities)}')
+        keep_fields = ["field 1"]
+        keep_quality = ["Adequate", "Good", "Excellent"]
 
+        self._metadata_df = self._metadata_df.query(f"image_side in {list(sides)}")
+        self._metadata_df = self._metadata_df.query(f"image_field in {list(keep_fields)}")
+        self._metadata_df = self._metadata_df.query(f"patient_gender in {list(genders)}")
+        self._metadata_df = self._metadata_df.query(
+            f"session_image_quality in {list(keep_quality)}"
+        )
+        self._metadata_df = self._metadata_df.query(f"patient_ethnicity in {list(ethnicities)}")
+
+        # TODO: allow subset query here
+
+        if subset_params is not None:
+            # TODO check that this is a dict with keys in valid_keys and values are list of attributes to keep
+            valid_keys = ["patient_gender", "patient_ethnicity", "session_image_quality"]
+
+            for k, v in subset_params.items():
+                print(k, v)
+                self._metadata_df = self._metadata_df.query(f"{k} in {v}")
 
         # Get the y values
-        self._y_array = torch.LongTensor(self._metadata_df['diagnosis_image_dr_level'].values)
+        self._y_array = torch.LongTensor(self._metadata_df["diagnosis_image_dr_level"].values)
         self._n_classes = 5
-        
-        # Get filenames
-        self._input_array = [os.path.join(self.image_path, ele) for ele in self._metadata_df['image_path'].values]
 
-        self._side_array = torch.LongTensor([sides[ele] for ele in self._metadata_df['image_side']])
-        self._field_array = torch.LongTensor([fields[ele] for ele in self._metadata_df['image_field']])
-        self._gender_array = torch.LongTensor([genders[ele] for ele in self._metadata_df['patient_gender']])
-        self._quality_array = torch.LongTensor([image_qualities[ele] for ele in self._metadata_df['session_image_quality']])
-        self._ethnicity_array = torch.LongTensor([ethnicities[ele] for ele in self._metadata_df['patient_ethnicity']])
+        # Get filenames
+        self._input_array = [
+            os.path.join(self.image_path, ele) for ele in self._metadata_df["image_path"].values
+        ]
+
+        self._side_array = torch.LongTensor(
+            [sides[ele] for ele in self._metadata_df["image_side"]]
+        )
+        self._field_array = torch.LongTensor(
+            [fields[ele] for ele in self._metadata_df["image_field"]]
+        )
+        self._gender_array = torch.LongTensor(
+            [genders[ele] for ele in self._metadata_df["patient_gender"]]
+        )
+        self._age_array = torch.FloatTensor([ele for ele in self._metadata_df["patient_age"]])
+        self._quality_array = torch.LongTensor(
+            [image_qualities[ele] for ele in self._metadata_df["session_image_quality"]]
+        )
+        self._ethnicity_array = torch.LongTensor(
+            [ethnicities[ele] for ele in self._metadata_df["patient_ethnicity"]]
+        )
 
         self._metadata_array = torch.stack(
-            (self._side_array,
-             self._field_array,
-             self._gender_array,
-             self._quality_array,
-             self._ethnicity_array,
-             self._y_array,
-             ),
-            dim=1)
-        self._metadata_fields = ['side', 'field', 'gender', 'quality', 'ethnicity', 'y']        
-        
+            (
+                self._side_array,
+                self._field_array,
+                self._gender_array,
+                self._age_array,
+                self._quality_array,
+                self._ethnicity_array,
+                self._y_array,
+            ),
+            dim=1,
+        )
+        self._metadata_fields = ["side", "field", "gender", "age", "quality", "ethnicity", "y"]
+
+        self.targets = list(self._y_array)
+        self.classes = sorted(list(set(self.targets)))
+
+        self._metadata_df = self._metadata_df.reset_index(drop=True)
 
     def __len__(self):
         return len(self.y_array)
@@ -365,7 +414,7 @@ class EyepacsDataset(VisionDataset):
         # since different subsets (e.g., train vs test) might have different transforms
         x = self.get_input(idx)
         y = self.y_array[idx]
-        
+
         return x, y
 
     def get_input(self, idx):
@@ -376,14 +425,12 @@ class EyepacsDataset(VisionDataset):
             - x (Tensor): Input features of the idx-th data point
         """
 
-        img_filename = os.path.join(
-            self.image_path,
-            self._input_array[idx])
-        x = Image.open(img_filename).convert('RGB')
-        
+        img_filename = os.path.join(self.image_path, self._input_array[idx])
+        x = Image.open(img_filename).convert("RGB")
+
         if self.transform is not None:
             x = self.transform(x)
-        
+
         return x
 
     @property
@@ -423,7 +470,7 @@ class EyepacsDataset(VisionDataset):
         None by default.
         Leave as None if not applicable (e.g., regression or multi-task classification).
         """
-        return getattr(self, '_n_classes', None)
+        return getattr(self, "_n_classes", None)
 
     @property
     def metadata_fields(self):
@@ -440,4 +487,3 @@ class EyepacsDataset(VisionDataset):
         the i-th data point. The columns correspond to the metadata_fields defined above.
         """
         return self._metadata_array
-
