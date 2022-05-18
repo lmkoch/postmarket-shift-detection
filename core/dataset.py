@@ -288,6 +288,7 @@ class EyepacsDataset(VisionDataset):
         target_transform=None,
         split="train",
         subset_params=None,
+        use_prepared_splits=True,
     ):
         super(EyepacsDataset, self).__init__(
             root, transform=transform, target_transform=target_transform
@@ -410,12 +411,11 @@ class EyepacsDataset(VisionDataset):
         return len(self.y_array)
 
     def __getitem__(self, idx):
-        # Any transformations are handled by the WILDSSubset
-        # since different subsets (e.g., train vs test) might have different transforms
         x = self.get_input(idx)
         y = self.y_array[idx]
+        m = self._metadata_array[idx]
 
-        return x, y
+        return x, y, m, idx
 
     def get_input(self, idx):
         """

@@ -2,9 +2,13 @@
 
 import argparse
 import os
+import pickle
 from mimetypes import init
 
+import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
+import seaborn as sns
 import torch
 import torch.nn as nn
 import torchvision
@@ -149,11 +153,6 @@ class DomainClassifier:
 
         self.best_val_acc = 0
 
-        if self.check_if_already_trained():
-            self.load_results_and_checkpoint()
-        else:
-            print("Does not exists - train it now.")
-
         self.epochs = train_params["epochs"]
 
         self.optimizer = initialize_optimizer(
@@ -169,6 +168,11 @@ class DomainClassifier:
             self.lr_scheduler = initialize_lr_scheduler(self.optimizer, {"gamma": 0.6})
         else:
             self.lr_scheduler = None
+
+        if self.check_if_already_trained():
+            self.load_last_results_and_checkpoint()
+        else:
+            print("Does not exists - train it now.")
 
     @property
     def checkpoint_path(self):
@@ -200,9 +204,9 @@ class DomainClassifier:
             checkpoint_path,
         )
 
-    def load_results_and_checkpoint(self):
+    def load_results_and_checkpoint(self, checkpoint_path):
 
-        checkpoint = torch.load(self.checkpoint_path, map_location=self.device)
+        checkpoint = torch.load(checkpoint_path, map_location=self.device)
 
         self.model.load_state_dict(checkpoint["model_state_dict"])
         self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
@@ -211,6 +215,12 @@ class DomainClassifier:
         self.best_val_acc = checkpoint["best_val_acc"]
 
         return epoch, batch_loss
+
+    def load_last_results_and_checkpoint(self):
+        return self.load_results_and_checkpoint(self.checkpoint_path)
+
+    def load_best_val_results_and_checkpoint(self):
+        return self.load_results_and_checkpoint(self.checkpoint_path_best_val)
 
     def prepare_batch_data(self, x_p: torch.Tensor, x_q: torch.Tensor):
 
@@ -242,7 +252,7 @@ class DomainClassifier:
         torch.manual_seed(self.seed)
 
         if self.check_if_already_trained():
-            self.load_results_and_checkpoint()
+            self.load_last_results_and_checkpoint()
             print("model already trained - do not train again.")
             return
 
@@ -257,10 +267,10 @@ class DomainClassifier:
             progress = tqdm(enumerate(self.trainloader_p))
             for batch_idx, batch_data in progress:
 
-                (imgs_p, _) = batch_data
+                (imgs_p, *_) = batch_data
 
                 try:
-                    _, (imgs_q, _) = next(dl_tr_f_enumerator)
+                    _, (imgs_q, *_) = next(dl_tr_f_enumerator)
                 except StopIteration:
                     break
 
@@ -326,11 +336,13 @@ class DomainClassifier:
 
         with torch.no_grad():
 
+            # for idx, (x, _) in enumerate(iterator_p):
+
             for idx in range(num_batches):
                 try:
-                    _, (x_p, _) = next(iterator_p)
-                    _, (x_p2, _) = next(iterator_p)
-                    batch_idx, (x_q, _) = next(iterator_q)
+                    _, (x_p, *_) = next(iterator_p)
+                    _, (x_p2, *_) = next(iterator_p)
+                    batch_idx, (x_q, *_) = next(iterator_q)
                 except:
                     self.logger.info(
                         f"{num_batches} larger than dataset size. \
@@ -338,9 +350,9 @@ class DomainClassifier:
                     )
                     iterator_p = enumerate(dataloader_p)
                     iterator_q = enumerate(dataloader_q)
-                    _, (x_p, _) = next(iterator_p)
-                    _, (x_p2, _) = next(iterator_p)
-                    batch_idx, (x_q, _) = next(iterator_q)
+                    _, (x_p, *_) = next(iterator_p)
+                    _, (x_p2, *_) = next(iterator_p)
+                    batch_idx, (x_q, *_) = next(iterator_q)
 
                 x_p, x_q, x_p2 = x_p.to(self.device), x_q.to(self.device), x_p2.to(self.device)
 
@@ -462,6 +474,192 @@ class DomainClassifier:
 
         return results
 
+    def eval(self, test_loader):
+
+        self.load_best_val_results_and_checkpoint()
+
+        self.model.eval()
+
+        debug = True
+
+        with torch.no_grad():
+
+            sample = {}
+
+            for p_q in ["p", "q"]:
+
+                y_pred = []
+                metadata = []
+                indices = []
+                print(f"forward pass through dataset {p_q}:")
+                for idx, (x, _, m, inds) in tqdm(enumerate(test_loader[p_q])):
+
+                    if debug and idx == 10:
+                        break
+
+                    x = x.to(self.device)
+                    y_pred.append(self.model(x))
+                    metadata.append(m)
+                    indices.append(inds)
+
+                y_pred = torch.cat(y_pred, 0)
+                y_sm = torch.softmax(y_pred, dim=1).detach().cpu().numpy()
+                y_bin = torch.argmax(y_pred, dim=1).detach().cpu().numpy()
+
+                metadata = np.concatenate(metadata, 0)
+                indices = np.concatenate(indices, 0)
+
+                sample[p_q] = {
+                    "y_sm": y_sm,  # softmax output for each class
+                    "y_bin": y_bin,  # binarised prediction
+                    "m": metadata,
+                    "inds": indices,
+                }
+
+        results_file = os.path.join(self.log_dir, "test_predictions.pickle")
+
+        with open(results_file, "wb") as f:
+            pickle.dump(sample, f)
+
+        dataset = {"p": test_loader["p"].dataset, "q": test_loader["q"].dataset}
+
+        metadata_fields = ["side", "field", "gender", "age", "quality", "ethnicity", "y_meta"]
+
+        sample_p = sample["p"]["y_sm"]
+        sample_q = sample["q"]["y_sm"]
+
+        labels_p = np.ones((sample_p.shape[0], 1))
+        labels_q = np.zeros((sample_q.shape[0], 1))
+
+        y = np.concatenate([labels_p, labels_q], axis=None)
+        y_pred = np.concatenate([sample["p"]["y_bin"], sample["q"]["y_bin"]], axis=None)
+        y_sm = np.concatenate([sample["p"]["y_sm"], sample["q"]["y_sm"]], 0)
+        dset_ind = np.concatenate([sample["p"]["inds"], sample["q"]["inds"]], axis=None)
+
+        metadata = np.concatenate([sample["p"]["m"], sample["q"]["m"]], 0)
+        meta = pd.DataFrame.from_records(metadata, columns=metadata_fields)
+
+        # Test power at various sample sizes
+
+        # Interpretability:
+        # Witness function histogram + subgroup / witness correspondence
+
+        # Theoretical performance limits (based on subgroup proportions)
+
+        # witness is the softmax output for the *positive* class (1, not 0)
+
+        # df = pd.DataFrame(
+        #     {"y": y[:, 0], "witness": y_sm[:, 1], "y_pred": y_pred, "dset_ind": dset_ind}
+        # )
+
+        df = pd.DataFrame({"y": y, "witness": y_sm[:, 1], "y_pred": y_pred, "dset_ind": dset_ind})
+
+        df = df.join(meta)
+
+        fig, ax = plt.subplots(1, 2, figsize=(8, 4))
+
+        sns.histplot(data=df, x="witness", hue="y", ax=ax[0], kde=True, bins=20)
+        sns.histplot(
+            data=df, x="witness", hue="quality", multiple="dodge", ax=ax[1], kde=True, bins=20
+        )
+
+        out_hists = os.path.join(self.log_dir, "witness_hists.pdf")
+        fig.savefig(out_hists)
+
+        # Plot some example images with low and high witness function values
+        sorted = df["witness"].argsort()
+        num_examples = 5
+        idx_10 = int(len(sorted) * 0.1)
+        idx_90 = int(len(sorted) * 0.9)
+
+        example_idx = {
+            "like_p": sorted[idx_10 : idx_10 + num_examples],
+            "like_q": sorted[idx_90 : idx_90 + num_examples],
+        }
+
+        print(df["witness"][example_idx["like_p"]])
+        print(df["witness"][example_idx["like_q"]])
+
+        for p_q in ["p", "q"]:
+            out_fig = os.path.join(self.log_dir, f"panel_like_{p_q}.png")
+
+            imgs = []
+            metadata = []
+
+            # get images correponding to specific indices back from dataset
+            for ele in example_idx[f"like_{p_q}"]:
+                if df["y"][ele] == 1:
+                    dset = dataset["p"]
+                else:
+                    dset = dataset["q"]
+
+                idx = df["dset_ind"][ele]
+
+                x, _, m, *_ = dset[idx]
+
+                imgs.append(x)
+                metadata.append(m)
+
+            # x, _, m = dataset[example_idx[f"like_{p_q}"]]
+            # print(m[4])
+            print(f"m: {[ele[4] for ele in metadata]}")
+            print(f'quality: {df["quality"][example_idx[f"like_{p_q}"]]}')
+
+            img_grid = torchvision.utils.make_grid(imgs, normalize=True)
+            img_grid = np.transpose(img_grid, (1, 2, 0)).numpy()
+            plt.imsave(out_fig, img_grid)
+
+        num_reps = self.eval_config["n_test_reps"]
+        num_reps = 10
+
+        sample_sizes = [10, 30, 50, 100, 500, 1000]
+        powers = []
+        type_1_errs = []
+        for sample_size in sample_sizes:
+            print(f"sample size: {sample_size}")
+
+            power = 0
+            type_1_err = 0
+
+            for _ in range(num_reps):
+
+                x = np.random.choice(sample["p"]["y_sm"][:, 1], size=sample_size, replace=True)
+                x2 = np.random.choice(sample["p"]["y_sm"][:, 1], size=sample_size, replace=True)
+                y = np.random.choice(sample["q"]["y_sm"][:, 1], size=sample_size, replace=True)
+
+                res_power = permutation_test((x, y), stat_C2ST)
+                res_type_1_err = permutation_test((x, x2), stat_C2ST)
+
+                power += res_power.pvalue < 0.05
+                type_1_err += res_type_1_err.pvalue < 0.05
+
+            powers.append(power / num_reps)
+            type_1_errs.append(type_1_err / num_reps)
+
+            print(powers)
+            print(type_1_errs)
+
+        # # conf_mat = confusion_matrix(y_all.cpu().numpy(), y_bin.cpu().numpy())
+
+        fpr, tpr, _ = roc_curve(df["y"], df["witness"])
+        roc_auc = auc(fpr, tpr)
+        ii = np.where(tpr > 0.95)[0][0]
+
+        results = {
+            "accuracy": np.sum(df["y"] == df["y_pred"]) / df.shape[0],
+            "roc_auc": roc_auc,
+            "fpr95": fpr[ii],
+            "power_c2st_l": powers,
+            "type_1_err__c2st_l": type_1_errs,
+            "sample_size": sample_size,
+        }
+
+        print(results)
+
+        res_file = os.path.join(self.log_dir, "test_results.csv")
+        res_df = pd.DataFrame.from_dict(results, orient="index")
+        res_df.to_csv(res_file)
+
 
 def load_or_train_task_classifier():
     pass
@@ -537,16 +735,7 @@ if __name__ == "__main__":
     domain_classifier.train()
 
     # EVAL:
-
-    # load best val model
-
-    # TODO apply to testset:
-
-    # domain classification accuracy
-    # Detection rate (1-fpr95)
-    # Test power at various sample sizes
-
-    # Theoretical performance limits (based on subgroup proportions)
+    domain_classifier.eval(test_loader=dataloader["test"])
 
     task_classifier = load_or_train_task_classifier()
 
