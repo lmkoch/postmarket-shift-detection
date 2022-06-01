@@ -46,7 +46,7 @@ def dataset_fn(seed: int, params_dict) -> Dict:
             img_size=params_ds["img_size"],
             preproc_mean=params_ds["mean"],
             preproc_std=params_ds["std"],
-            subset_params=params_ds[p_q]["subset_params"],
+            subset_params=params_ds[p_q].get("subset_params"),
         )
 
         for split in ["train", "val", "test"]:
@@ -83,6 +83,21 @@ def get_dataset(
     dataset = {}
 
     if dataset_type == "mnist":
+
+        scale_erase = subset_params["scale_erase"]
+
+        random_erase = transforms.RandomErasing(
+            p=subset_params["p_erase"], scale=(scale_erase, scale_erase), ratio=(1, 1)
+        )
+
+        transform = transforms.Compose(
+            [
+                transforms.Resize(img_size),
+                transforms.ToTensor(),
+                random_erase,
+                transforms.Normalize(preproc_mean, preproc_std),
+            ]
+        )
 
         mnist_train = datasets.MNIST(data_root, transform=transform, download=True, train=True)
 

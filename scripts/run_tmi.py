@@ -73,48 +73,13 @@ def stat_C2ST(sample_a, sample_b):
     return stat
 
 
-# Define the deep network for C2ST-S and C2ST-L
-class Discriminator(nn.Module):
-    def __init__(self, n_channels, img_size):
-        super(Discriminator, self).__init__()
-
-        def discriminator_block(in_filters, out_filters, bn=True):
-            block = [
-                nn.Conv2d(in_filters, out_filters, 3, 2, 1),
-                nn.LeakyReLU(0.2, inplace=True),
-                nn.Dropout2d(0),
-            ]
-            if bn:
-                block.append(nn.BatchNorm2d(out_filters, 0.8))
-            return block
-
-        self.model = nn.Sequential(
-            *discriminator_block(n_channels, 16, bn=False),
-            *discriminator_block(16, 32),
-            *discriminator_block(32, 64),
-            *discriminator_block(64, 128),
-        )
-
-        # The height and width of downsampled image
-        ds_size = img_size // 2**4
-        self.adv_layer = nn.Sequential(
-            nn.Linear(128 * ds_size**2, 300), nn.ReLU(), nn.Linear(300, 2), nn.Softmax()
-        )
-
-    def forward(self, img):
-        out = self.model(img)
-        out = out.view(out.shape[0], -1)
-        validity = self.adv_layer(out)
-
-        return validity
-
-
 class DomainClassifier:
     def __init__(
         self,
         dataloaders,
         artifacts_dir,
         hash_string,
+        model_params,
         train_params,
         eval_params,
         seed=1000,
@@ -122,12 +87,8 @@ class DomainClassifier:
 
         self.device = torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
 
-        # check if model exists
         self.log_dir = os.path.join(artifacts_dir, hash_string)
-
         os.makedirs(self.log_dir, exist_ok=True)
-
-        # otherwise train domain classifier
 
         self.trainloader_p = dataloaders["train"]["p"]
         self.trainloader_q = dataloaders["train"]["q"]
@@ -146,9 +107,15 @@ class DomainClassifier:
             self.writer = SummaryWriter(self.log_dir, flush_secs=10)
 
         self.model = torchvision.models.resnet50(pretrained=True)
+
+        # FIXME pass as parameter (should be 1 for grayscale, e.g. MNIST)
+        in_channels = model_params["in_channels"]
+        self.model.conv1 = nn.Conv2d(
+            in_channels, 64, kernel_size=7, stride=2, padding=3, bias=False
+        )
+
         self.model.fc = nn.Linear(self.model.fc.in_features, 2)
 
-        # self.model = Discriminator(dataset_params['ds']['n_channels'], dataset_params['ds']['img_size'][0])
         self.model = self.model.to(self.device)
 
         self.best_val_acc = 0
@@ -488,7 +455,7 @@ class DomainClassifier:
 
             for p_q in ["p", "q"]:
 
-                y_pred = []
+                logits = []
                 metadata = []
                 indices = []
                 print(f"forward pass through dataset {p_q}:")
@@ -498,22 +465,24 @@ class DomainClassifier:
                         break
 
                     x = x.to(self.device)
-                    y_pred.append(self.model(x))
+                    logits.append(self.model(x))
                     metadata.append(m)
                     indices.append(inds)
 
-                y_pred = torch.cat(y_pred, 0)
-                y_sm = torch.softmax(y_pred, dim=1).detach().cpu().numpy()
-                y_bin = torch.argmax(y_pred, dim=1).detach().cpu().numpy()
+                logits = torch.cat(logits, 0)
+                y_sm = torch.softmax(logits, dim=1)
+                y_bin = torch.argmax(logits, dim=1)
 
                 metadata = np.concatenate(metadata, 0)
                 indices = np.concatenate(indices, 0)
 
                 sample[p_q] = {
-                    "y_sm": y_sm,  # softmax output for each class
-                    "y_bin": y_bin,  # binarised prediction
+                    "logits": logits.detach().cpu().numpy(),  # logits for each class
+                    "y_sm": y_sm.detach().cpu().numpy(),  # softmax output for each class
+                    "y_bin": y_bin.detach().cpu().numpy(),  # binarised prediction
                     "m": metadata,
                     "inds": indices,
+                    "witness": (logits[:, 0] - logits[:, 1]).detach().cpu().numpy(),
                 }
 
         results_file = os.path.join(self.log_dir, "test_predictions.pickle")
@@ -522,6 +491,8 @@ class DomainClassifier:
             pickle.dump(sample, f)
 
         dataset = {"p": test_loader["p"].dataset, "q": test_loader["q"].dataset}
+
+        # FIXME: from here on, there is code specific to eyepacs -> should keep this general!
 
         metadata_fields = ["side", "field", "gender", "age", "quality", "ethnicity", "y_meta"]
 
@@ -533,6 +504,7 @@ class DomainClassifier:
 
         y = np.concatenate([labels_p, labels_q], axis=None)
         y_pred = np.concatenate([sample["p"]["y_bin"], sample["q"]["y_bin"]], axis=None)
+        logits = np.concatenate([sample["p"]["logits"], sample["q"]["logits"]], axis=0)
         y_sm = np.concatenate([sample["p"]["y_sm"], sample["q"]["y_sm"]], 0)
         dset_ind = np.concatenate([sample["p"]["inds"], sample["q"]["inds"]], axis=None)
 
@@ -552,7 +524,14 @@ class DomainClassifier:
         #     {"y": y[:, 0], "witness": y_sm[:, 1], "y_pred": y_pred, "dset_ind": dset_ind}
         # )
 
-        df = pd.DataFrame({"y": y, "witness": y_sm[:, 1], "y_pred": y_pred, "dset_ind": dset_ind})
+        df = pd.DataFrame(
+            {
+                "y": y,
+                "witness": logits[:, 0] - logits[:, 1],
+                "y_pred": y_pred,
+                "dset_ind": dset_ind,
+            }
+        )
 
         df = df.join(meta)
 
@@ -623,9 +602,9 @@ class DomainClassifier:
 
             for _ in range(num_reps):
 
-                x = np.random.choice(sample["p"]["y_sm"][:, 1], size=sample_size, replace=True)
-                x2 = np.random.choice(sample["p"]["y_sm"][:, 1], size=sample_size, replace=True)
-                y = np.random.choice(sample["q"]["y_sm"][:, 1], size=sample_size, replace=True)
+                x = np.random.choice(sample["p"]["witness"], size=sample_size, replace=True)
+                x2 = np.random.choice(sample["p"]["witness"], size=sample_size, replace=True)
+                y = np.random.choice(sample["q"]["witness"], size=sample_size, replace=True)
 
                 res_power = permutation_test((x, y), stat_C2ST)
                 res_type_1_err = permutation_test((x, x2), stat_C2ST)
@@ -641,7 +620,7 @@ class DomainClassifier:
 
         # # conf_mat = confusion_matrix(y_all.cpu().numpy(), y_bin.cpu().numpy())
 
-        fpr, tpr, _ = roc_curve(df["y"], df["witness"])
+        fpr, tpr, _ = roc_curve(df["y"], -df["witness"])
         roc_auc = auc(fpr, tpr)
         ii = np.where(tpr > 0.95)[0][0]
 
@@ -690,7 +669,8 @@ if __name__ == "__main__":
         action="store",
         type=str,
         help="config file",
-        default="./config/eyepacs_quality_ood.yaml"
+        # default="./config/eyepacs_quality_ood.yaml"
+        default="./config/mnist_subgroups.yaml"
         # default='./experiments/hypothesis-tests/mnist/5c3010e7e9f5de06c7d55ecbed422251/config.yaml'
     )
     parser.add_argument(
@@ -728,16 +708,19 @@ if __name__ == "__main__":
         dataloader,
         args.artifacts_dir,
         hash_string,
+        model_params=params["domain_classifier"]["model"],
         train_params=params["domain_classifier"]["train"],
         eval_params=params["domain_classifier"]["eval"],
     )
 
     domain_classifier.train()
 
-    # EVAL:
-    domain_classifier.eval(test_loader=dataloader["test"])
-
+    # TODO
     task_classifier = load_or_train_task_classifier()
+
+    # EVAL:
+    # FIXME the eval code below is eyepacs specific. Need this to work for MNIST and camelyon too
+    domain_classifier.eval(test_loader=dataloader["test"])
 
     ###############################################################################################################################
     # Run training
@@ -759,15 +742,17 @@ if __name__ == "__main__":
         model=model, dataloaders=dataloader, seed=args.seed, log_dir=log_dir, **params["trainer"]
     )
 
-    # ODIN
-
-    #
-
     trainer.train()
 
     ###############################################################################################################################
     # Eval MMD-D and MUKS on various sample sizes
     ###############################################################################################################################
+
+    # 1. MMD-D
+
+    # 2. MUKS
+
+    # 3. C2ST
 
     for split in args.eval_splits:
         eval(

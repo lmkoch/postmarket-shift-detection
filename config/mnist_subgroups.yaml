@@ -1,0 +1,69 @@
+---
+dataset:
+    # dataset
+    ds:
+        img_size: [32, 32]
+        mean: [0.1307]
+        std: [0.3081]
+        p:
+            dataset: 'mnist'
+            data_root: './data'
+            subset_params:
+                p_erase: 0.5
+                scale_erase: 0.2
+        q:
+            dataset: 'mnist'
+            data_root: './data'
+            subset_params:
+                p_erase: 1
+                scale_erase: 0.2    # dataloader
+    dl:
+        batch_size: 64
+        p:
+            use_sampling: False
+            sampling_by_variable: 'targets'
+            sampling_weights: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+        q:
+            use_sampling: False
+            sampling_by_variable: 'targets'
+            sampling_weights: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+        num_workers: 4
+        pin_memory: True
+model:
+    img_size: 32
+    channels: 1
+    n_outputs: 10 
+    task_classifier_type: 'mnist'
+    task_classifier_path: './experiments_rebuttal/classification-models/mnist.pt'
+trainer:
+    epochs: 3
+    learning_rate: 1.e-5
+    loss_type: 'mmd2'
+    loss_lambda: 10**(-6)
+    eval:
+        n_permute: 100
+        alpha: 0.05
+        use_tensorboard: True
+        n_test_reps: 100
+        eval_interval_globalstep: 100
+        num_eval_batches: 20
+domain_classifier:
+    model:
+        arch: 'resnet50'
+        in_channels: 1
+    train:
+        epochs: 3
+        optimizer: SGD # SGD / ADAM
+        learning_rate: 0.001 # initial learning rate
+        momentum: 0.9 # only for SGD. set to 0 to disable momentum
+        nesterov: True # only for SGD.
+        weight_decay: 0.0005 # set to 0 to disable weight decay
+        lr_scheduler: True
+    eval:
+        n_permute: 100
+        alpha: 0.05
+        use_tensorboard: True
+        n_test_reps: 30
+        eval_interval_globalstep: 300
+        num_eval_batches: 30
+        plot_images_first_only: True
