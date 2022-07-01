@@ -22,6 +22,8 @@ setup(
         "laplace-torch",
         "wilds @ git+https://github.com/lmkoch/wilds.git",
         "multi_level_split @ git+https://github.com/lmkoch/multi-level-split",
+        "pytorch-lightning",
+        "munch",
     ],
     license="MIT",
 )

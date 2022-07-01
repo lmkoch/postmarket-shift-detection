@@ -13,6 +13,7 @@ from torch.utils.data import Subset
 from torchvision import datasets
 from torchvision.datasets import VisionDataset
 from utils.helpers import balanced_weights
+from utils.transforms import data_transforms
 from wilds.datasets.camelyon17_dataset import Camelyon17Dataset
 from wilds.datasets.wilds_dataset import WILDSDataset
 
@@ -43,10 +44,10 @@ def dataset_fn(seed: int, params_dict) -> Dict:
         dataset = get_dataset(
             params_ds[p_q]["dataset"],
             params_ds[p_q]["data_root"],
-            img_size=params_ds["img_size"],
-            preproc_mean=params_ds["mean"],
-            preproc_std=params_ds["std"],
-            subset_params=params_ds[p_q].get("subset_params"),
+            params_ds[p_q].get("subset_params"),
+            params_ds["basic_preproc"],
+            params_ds["data_augmentation"],
+            params_ds["data_augmentation_args"],
         )
 
         for split in ["train", "val", "test"]:
@@ -69,15 +70,16 @@ def dataset_fn(seed: int, params_dict) -> Dict:
 
 
 def get_dataset(
-    dataset_type: str, data_root: str, img_size, preproc_mean, preproc_std, subset_params=None
+    dataset_type: str,
+    data_root: str,
+    subset_params,
+    basic_preproc_config,
+    augmentations,
+    augmentation_config,
 ):
 
-    transform = transforms.Compose(
-        [
-            transforms.Resize(img_size),
-            transforms.ToTensor(),
-            transforms.Normalize(preproc_mean, preproc_std),
-        ]
+    train_transform, test_transform = data_transforms(
+        basic_preproc_config, augmentations, augmentation_config
     )
 
     dataset = {}
@@ -90,19 +92,20 @@ def get_dataset(
             p=subset_params["p_erase"], scale=(scale_erase, scale_erase), ratio=(1, 1)
         )
 
-        transform = transforms.Compose(
-            [
-                transforms.Resize(img_size),
-                transforms.ToTensor(),
-                random_erase,
-                transforms.Normalize(preproc_mean, preproc_std),
-            ]
+        train_transform = transforms.Compose(
+            [transforms.ToTensor(), random_erase, transforms.ToPILImage(), train_transform]
+        )
+        test_transform = transforms.Compose(
+            [transforms.ToTensor(), random_erase, transforms.ToPILImage(), test_transform]
         )
 
-        mnist_train = datasets.MNIST(data_root, transform=transform, download=True, train=True)
+        mnist_train = datasets.MNIST(
+            data_root, transform=train_transform, download=True, train=True
+        )
+        mnist_val = datasets.MNIST(data_root, transform=test_transform, download=True, train=True)
 
         dataset["test"] = datasets.MNIST(
-            data_root, transform=transform, download=True, train=False
+            data_root, transform=test_transform, download=True, train=False
         )
 
         train_indices, val_indices, _, _ = train_test_split(
@@ -114,7 +117,7 @@ def get_dataset(
 
         # generate subset based on indices
         dataset["train"] = Subset(mnist_train, train_indices)
-        dataset["val"] = Subset(mnist_train, val_indices)
+        dataset["val"] = Subset(mnist_val, val_indices)
 
     elif dataset_type == "camelyon":
 
@@ -122,20 +125,19 @@ def get_dataset(
             root_dir=data_root, split_scheme="vanilla", download=True
         )
 
-        dataset["train"] = full_dataset.get_subset("train", transform=transform)
-        dataset["val"] = full_dataset.get_subset("val", transform=transform)
-        dataset["test"] = full_dataset.get_subset("test", transform=transform)
+        dataset["train"] = full_dataset.get_subset("train", transform=train_transform)
+        dataset["val"] = full_dataset.get_subset("val", transform=test_transform)
+        dataset["test"] = full_dataset.get_subset("test", transform=test_transform)
 
     elif dataset_type == "eyepacs":
 
         # TODO fix data_root relative to both image_dir and csv
         # data_root = '/home/lkoch/mnt/cin_root/data/eyepacs/'
 
-        transform = transforms.Compose(
-            [transforms.ToTensor(), transforms.Resize(96), transforms.CenterCrop(96)]
-        )
-
         for split in ["train", "val", "test"]:
+
+            transform = train_transform if split == "train" else test_transform
+
             dataset[split] = EyepacsDataset(
                 data_root=data_root, split=split, transform=transform, subset_params=subset_params
             )
@@ -309,8 +311,10 @@ class EyepacsDataset(VisionDataset):
             root, transform=transform, target_transform=target_transform
         )
 
-        self.image_path = os.path.join(data_root, "data_raw", "images")
-        meta_csv = os.path.join(data_root, "data_processed", "metadata", "metadata_image.csv")
+        self.image_path = os.path.join(data_root, "data_processed", "images")
+        meta_csv = os.path.join(
+            data_root, "data_processed", "metadata", "metadata_image_circular_crop.csv"
+        )
         metadata_df = pd.read_csv(meta_csv)
 
         self._split_dict = {"train": 0, "test": 1, "val": 2}
