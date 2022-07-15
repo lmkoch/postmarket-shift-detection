@@ -86,14 +86,16 @@ domain_classifier:
     model:
         arch: 'resnet50'
         in_channels: 1                                                  # Adapt depending on dataset
-    train:
-        epochs: 1                                                       # Adapt depending on dataset
-        optimizer: ADAM # SGD / ADAM
-        learning_rate: 1.e-5 # initial learning rate
-        momentum: 0.9 # only for SGD. set to 0 to disable momentum
-        nesterov: True # only for SGD.
-        weight_decay: 0.0005 # set to 0 to disable weight decay
-        lr_scheduler: True
+        n_outputs: 2
+        optim_config:
+            optimizer: ADAM # SGD / ADAM
+            learning_rate: 1.e-5 # initial learning rate
+            momentum: 0.9 # only for SGD. set to 0 to disable momentum
+            nesterov: True # only for SGD.
+            weight_decay: 0.0005 # set to 0 to disable weight decay
+            lr_scheduler: True        
+    trainer:
+        epochs: 10                                                       # Adapt depending on dataset
     eval:
         n_permute: 100
         alpha: 0.05
@@ -104,17 +106,10 @@ domain_classifier:
         plot_images_first_only: True
 task_classifier:
     model:
-        img_size: 32
-        channels: 1
-        n_outputs: 10 
-        task_classifier_type: 'mnist'
-        task_classifier_path: './experiments_rebuttal/classification-models/mnist.pt'
-task_lightning:
-    model:
         arch: 'resnet50'
         in_channels: 1    
         n_outputs: 10 
-        optimizer:
+        optim_config:
             optimizer: ADAM # SGD / ADAM
             learning_rate: 1.e-5 # initial learning rate
             momentum: 0.9 # only for SGD. set to 0 to disable momentum

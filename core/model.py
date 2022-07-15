@@ -1,5 +1,6 @@
 import logging
 import os
+from argparse import ArgumentError
 from typing import Dict
 
 import gdown
@@ -8,7 +9,9 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import torchvision.models as models
+from scipy.stats import permutation_test
 from torch.nn.functional import one_hot
+from utils.helpers import stat_C2ST
 from wilds.datasets.download_utils import extract_archive
 
 
@@ -74,32 +77,44 @@ def initialize_optimizer(
 import pytorch_lightning as pl
 import torchmetrics
 import torchvision
+from pytorch_lightning.trainer.supporters import CombinedLoader
 
 
-class TaskClassifier(pl.LightningModule):
-    def __init__(
-        self,
-        model_params,
-    ):
+class DataModule(pl.LightningDataModule):
+    def __init__(self, dataloader, domains=["p", "q"]):
+        self.train_loaders = {domain: dataloader["train"][domain] for domain in domains}
+        self.val_loaders = {domain: dataloader["validation"][domain] for domain in domains}
+        self.test_loaders = {domain: dataloader["test"][domain] for domain in domains}
 
-        # TODO make flexible enough that this can be used for MNIST, Camelyon17 and EyePACS
-        #      with the necessary respective parameter settings
+        super().__init__()
 
+    def train_dataloader(self):
+        return CombinedLoader(self.train_loaders)
+
+    def val_dataloader(self):
+        return CombinedLoader(self.val_loaders)
+
+    def test_dataloader(self):
+        return CombinedLoader(self.test_loaders)
+
+
+class BaseClassifier(pl.LightningModule):
+    def __init__(self, arch, in_channels, n_outputs, optim_config):
         super().__init__()
 
         self.loss_fn = torch.nn.CrossEntropyLoss()
 
-        self.model = torchvision.models.resnet50(pretrained=True)
+        if arch == "resnet50":
+            self.model = torchvision.models.resnet50(pretrained=True)
+            self.model.conv1 = nn.Conv2d(
+                in_channels, 64, kernel_size=7, stride=2, padding=3, bias=False
+            )
+            self.model.fc = nn.Linear(self.model.fc.in_features, n_outputs)
 
-        in_channels = model_params["in_channels"]
-        self.model.conv1 = nn.Conv2d(
-            in_channels, 64, kernel_size=7, stride=2, padding=3, bias=False
-        )
+        else:
+            raise NotImplementedError(f"Model not implemented: {arch}")
 
-        n_outputs = model_params["n_outputs"]
-        self.model.fc = nn.Linear(self.model.fc.in_features, n_outputs)
-
-        self.optim_params = model_params["optimizer"]
+        self.optim_params = optim_config
 
         self.val_acc = torchmetrics.Accuracy()
         self.train_acc = torchmetrics.Accuracy()
@@ -142,7 +157,7 @@ class TaskClassifier(pl.LightningModule):
             logger=True,
         )
 
-        return loss
+        return {"loss": loss}
 
     def validation_step(self, val_batch, batch_idx):
         x, y = val_batch
@@ -153,168 +168,96 @@ class TaskClassifier(pl.LightningModule):
         self.log("val/loss", loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
         self.log("val/acc", self.val_acc, on_step=True, on_epoch=True, prog_bar=True, logger=True)
 
+        img_grid = torchvision.utils.make_grid(x[:8], normalize=True)
 
-class MNISTNet(nn.Module):
-    """Adaptable input channels,
-    rest from https://pytorch.org/tutorials/beginner/blitz/cifar10_tutorial.html
+        self.logger.experiment.add_image("val/img", img_grid, self.trainer.global_step)
 
-    """
+        return {"loss": loss}
 
-    def __init__(
-        self, in_channels=1, n_outputs=10, checkpoint_path=None, download=True, remove_digit=None
-    ):
-        super(MNISTNet, self).__init__()
 
-        # Load a pretrained resnet model from torchvision.models in Pytorch
-        self.model = models.resnet18(pretrained=True)
+class TaskClassifier(BaseClassifier):
+    def training_step(self, batch, batch_idx) -> None:
+        return super().training_step(batch["p"], batch_idx)
 
-        # Change the input layer to take Grayscale image, instead of RGB images.
-        # Hence in_channels is set as 1 or 3 respectively
-        # original definition of the first layer on the ResNet class
-        # self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
-        self.model.conv1 = nn.Conv2d(
-            in_channels, 64, kernel_size=7, stride=2, padding=3, bias=False
-        )
+    def validation_step(self, batch, batch_idx) -> None:
+        return super().validation_step(batch["p"], batch_idx)
 
-        # Change the output layer to output 10 classes instead of 1000 classes
 
-        # TODO: n_outputs argument could be removed, but would require refactor
-        self.remove_digit = remove_digit
-        self.n_outputs = n_outputs
+class DomainClassifier(BaseClassifier):
+    def prepare_batch_data(self, x_p: torch.Tensor, x_q: torch.Tensor):
 
-        self.model.fc = nn.Linear(self.model.fc.in_features, self.n_outputs)
+        labels_p = torch.ones((x_p.shape[0], 1))
+        labels_q = torch.zeros((x_q.shape[0], 1))
 
-        self.device = torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
+        x = torch.cat([x_p, x_q], 0)
+        y = torch.cat([labels_p, labels_q], 0).squeeze().long().to(self.device)
 
-        self.criterion = nn.CrossEntropyLoss()
-        self.optimizer = optim.SGD(self.model.parameters(), lr=0.001, momentum=0.9)
+        return x, y
 
-        out_dir = os.path.dirname(checkpoint_path)
-        os.makedirs(out_dir, exist_ok=True)
+    def training_step(self, batch, batch_idx) -> None:
 
-        self.checkpoint_path = checkpoint_path
+        prepped_batch = self.prepare_batch_data(batch["p"][0], batch["q"][0])
 
-        model_name = os.path.basename(checkpoint_path).split(".")[0]
+        return super().training_step(prepped_batch, batch_idx)
 
-        self.logger = logging.getLogger("mnist_classification")
-        self.logger.addHandler(logging.FileHandler(os.path.join(out_dir, f"{model_name}.log")))
-        self.logger.setLevel(logging.INFO)
+    def validation_step(self, batch, batch_idx) -> None:
 
-        trained_models_url = "https://drive.google.com/uc?id=1fYmNcgvm91YnMRX4isGAXVors9I17oWD"
-        archive = os.path.join(out_dir, "archive.tar.gz")
+        prepped_batch = self.prepare_batch_data(batch["p"][0], batch["q"][0])
 
-        if os.path.exists(checkpoint_path):
-            self.load_checkpoint()
-        else:
-            if download:
-                gdown.download(trained_models_url, archive, quiet=False)
+        x, y = prepped_batch
+        y_logits = self.model(x)
 
-                self.logger.info("Extracting {} to {}".format(archive, out_dir))
-                extract_archive(archive, out_dir, True)
+        # Remember validation images for visualisation later
+        self.val_y = y
+        self.y_logits = y_logits
 
-                self.load_checkpoint()
-            else:
-                self.logger.warning("Dataset does not exist. Download it or train the model")
+        outputs = super().validation_step(prepped_batch, batch_idx)
 
-    def forward(self, x):
-        return self.model(x)
+        outputs["y"] = y
+        outputs["y_logits"] = y_logits
 
-    def save_results(self, epoch, batch_loss):
+        return outputs
 
-        torch.save(
-            {
-                "epoch": epoch,
-                "model_state_dict": self.model.state_dict(),
-                "optimizer_state_dict": self.optimizer.state_dict(),
-                "loss": batch_loss,
-            },
-            self.checkpoint_path,
-        )
+    def validation_epoch_end(self, outputs):
 
-    def train_model(self, dataloader_train):
+        # Log outputs
+        # losses = [x["loss"] for x in outputs]
+        y = torch.cat([x["y"] for x in outputs])
+        y_logits = torch.cat([x["y_logits"] for x in outputs])
+        # y = torch.stack(outputs["y"])
+        # y_logits = torch.stack(outputs["y_logits"])
+        # y, y_logits = self.val_y, self.y_logits
+        y_pred = torch.argmax(y_logits, dim=1)
+        y_sm = torch.softmax(y_logits, dim=1)
 
-        if os.path.exists(self.checkpoint_path):
-            print("model already trained - do not train again.")
-            return
+        sample_p = y_sm[y == 1, 1].detach().cpu().numpy()
+        sample_q = y_sm[y == 0, 1].detach().cpu().numpy()
 
-        self.model.train()
+        power = 0
+        type_1_err = 0
 
-        for epoch in range(3):
+        # TODO all of below configurable
+        num_reps = 10
+        alpha = 0.05
+        sample_size = 100
 
-            running_loss = 0.0
-            for i, data in enumerate(dataloader_train):
-                inputs, labels = data
+        for _ in range(num_reps):
 
-                if self.remove_digit != None:
-                    # adjustments specific for the 9-way classificaiton
-                    labels_onehot = one_hot(labels, num_classes=10).type(torch.float)
+            x = np.random.choice(sample_p, size=sample_size, replace=True)
+            x2 = np.random.choice(sample_p, size=sample_size, replace=True)
+            y = np.random.choice(sample_q, size=sample_size, replace=True)
 
-                    class_idx = torch.ones(10, dtype=torch.bool)
-                    class_idx[self.remove_digit] = 0
+            res_power = permutation_test((x, y), stat_C2ST)
+            res_type_1_err = permutation_test((x, x2), stat_C2ST)
 
-                    labels = labels_onehot[:, class_idx]
+            power += res_power.pvalue < alpha
+            type_1_err += res_type_1_err.pvalue < alpha
 
-                # zero the parameter gradients
-                self.optimizer.zero_grad()
+        power = power / num_reps
+        type_1_err = type_1_err / num_reps
 
-                # forward + backward + optimize
-                outputs = self.model(inputs)
-                loss = self.criterion(outputs, labels)
-                loss.backward()
-                self.optimizer.step()
-
-                # print statistics
-                running_loss += loss.item()
-                if i % 100 == 99:  # print every 2000 mini-batches
-                    self.logger.info(
-                        "[%d, %5d] loss: %.3f" % (epoch + 1, i + 1, running_loss / 100)
-                    )
-                    running_loss = 0.0
-
-        self.save_results(epoch, running_loss / 100)
-
-    def load_checkpoint(self):
-
-        checkpoint = torch.load(self.checkpoint_path, map_location=self.device)
-
-        self.model.load_state_dict(checkpoint["model_state_dict"])
-        self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
-        epoch = checkpoint["epoch"]
-        batch_loss = checkpoint["loss"]
-
-        self.model = self.model.to(self.device)
-
-        return epoch, batch_loss
-
-    def eval_model(
-        self,
-        dataloader,
-    ):
-
-        self.model.eval()
-        # since we're not training, we don't need to calculate the gradients for our outputs
-
-        correct = 0
-        total = 0
-
-        with torch.no_grad():
-            for _, (x, y) in enumerate(dataloader):
-
-                outputs = self.model(x)
-
-                # the class with the highest energy is what we choose as prediction
-                _, predicted = torch.max(outputs.data, 1)
-
-                if self.remove_digit != None:
-                    predicted[predicted >= self.remove_digit] += 1
-
-                total += predicted.size(0)
-                correct += (predicted == y).sum().item()
-
-        accuracy = correct / total
-        self.logger.info(f"Val accuracy: {accuracy}")
-
-        return accuracy
+        self.log("val/power", power, on_epoch=True, prog_bar=True, logger=True)
+        self.log("val/type_1err", type_1_err, on_epoch=True, prog_bar=True, logger=True)
 
 
 class CamelyonDensenet(nn.Module):
