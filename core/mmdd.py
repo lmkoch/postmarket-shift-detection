@@ -14,6 +14,51 @@ from utils.mmd import mmd_and_var
 from utils.utils_HD import TST_MMD_u
 
 
+def assemble_loss(loss_type, loss_lambda):
+
+    # original
+    if loss_type == "original":
+        loss_fn = partial(loss_original, lam=loss_lambda)
+    elif loss_type == "log_original":
+        loss_fn = partial(loss_log_original, lam=loss_lambda)
+    elif loss_type == "log_mmd2":
+        loss_fn = partial(loss_log_mmd2)
+    elif loss_type == "mmd2":
+        loss_fn = partial(loss_mmd2)
+    elif loss_type == "additive":
+        loss_fn = partial(loss_additive, lam=loss_lambda)
+    else:
+        loss_fn = None
+
+    return loss_fn
+
+
+def mmd_test(x_p, x_q, model, num_permutations, alpha=0.05):
+
+    ep = model.ep
+    sigma = model.sigma_sq
+    sigma0_u = model.sigma0_sq
+
+    S = torch.cat([x_p, x_q], 0)
+    batch_size = x_p.shape[0]
+    Sv = S.view(2 * batch_size, -1)
+
+    h_u, _, _ = TST_MMD_u(
+        model(S),
+        num_permutations,
+        batch_size,
+        Sv,
+        sigma,
+        sigma0_u,
+        ep,
+        alpha,
+        None,
+        None,
+    )
+
+    return h_u
+
+
 def loss_original(feat_p, feat_q, x_p, x_q, sigma, sigma0, ep, lam=10 ** (-6)):
     # Compute Compute J
 
@@ -106,21 +151,7 @@ class Trainer:
 
         self.log_dir = log_dir
 
-        self.loss_fn = loss_original
-
-        # original
-        if loss_type == "original":
-            self.loss_fn = partial(loss_original, lam=loss_lambda)
-        elif loss_type == "log_original":
-            self.loss_fn = partial(loss_log_original, lam=loss_lambda)
-        elif loss_type == "log_mmd2":
-            self.loss_fn = partial(loss_log_mmd2)
-        elif loss_type == "mmd2":
-            self.loss_fn = partial(loss_mmd2)
-        elif loss_type == "additive":
-            self.loss_fn = partial(loss_additive, lam=loss_lambda)
-        else:
-            self.loss_fn = None
+        self.loss_fn = assemble_loss(loss_type=loss_type, loss_lambda=loss_lambda)
 
         self.optimizer = optim.Adam(self.model.parameters(), lr=learning_rate)
 
@@ -303,38 +334,23 @@ class Trainer:
             #       TODO: refactor permutation test as well for readability and no redundancy
 
             # power
-            S = torch.cat([x_p, x_q], 0)
-            batch_size = x_p.shape[0]
-            dtype = x_p.dtype
-            Sv = S.view(2 * batch_size, -1)
 
-            h_u, _, _ = TST_MMD_u(
-                self.model(S),
-                num_permutations,
-                batch_size,
-                Sv,
-                sigma,
-                sigma0_u,
-                ep,
-                self.eval_config["alpha"],
-                self.device,
-                dtype,
+            # power
+            h_u = mmd_test(
+                x_p,
+                x_q,
+                self.model,
+                num_permutations=num_permutations,
+                alpha=self.eval_config["alpha"],
             )
 
             # type I error
-            S = torch.cat([x_p, x_p2], 0)
-            Sv = S.view(2 * batch_size, -1)
-            h_u_h0, _, _ = TST_MMD_u(
-                self.model(S),
-                num_permutations,
-                batch_size,
-                Sv,
-                sigma,
-                sigma0_u,
-                ep,
-                self.eval_config["alpha"],
-                self.device,
-                dtype,
+            h_u_h0 = mmd_test(
+                x_p,
+                x_p2,
+                self.model,
+                num_permutations=num_permutations,
+                alpha=self.eval_config["alpha"],
             )
 
             # Gather results

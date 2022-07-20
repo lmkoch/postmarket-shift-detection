@@ -358,6 +358,7 @@ class EyepacsDataset(VisionDataset):
             "Native American": 5,
             "Multi-racial": 6,
         }
+        dr_levels = [0.0, 1.0, 2.0, 3.0, 4.0]
 
         # filter
         keep_fields = ["field 1"]
@@ -370,6 +371,7 @@ class EyepacsDataset(VisionDataset):
             f"session_image_quality in {list(keep_quality)}"
         )
         self._metadata_df = self._metadata_df.query(f"patient_ethnicity in {list(ethnicities)}")
+        self._metadata_df = self._metadata_df.query(f"diagnosis_image_dr_level in {dr_levels}")
 
         # TODO: allow subset query here
 

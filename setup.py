@@ -12,6 +12,7 @@ setup(
         "numpy==1.21.4",
         "pandas==1.3.4",
         "PyYAML==6.0",
+        "setuptools==59.5.0",
         "scikit_learn==1.0.2",
         "scipy==1.8",
         "seaborn==0.11.2",

@@ -1,41 +1,19 @@
 import logging
-import os
 from argparse import ArgumentError
 from typing import Dict
 
-import gdown
 import numpy as np
+import pytorch_lightning as pl
 import torch
 import torch.nn as nn
-import torch.optim as optim
-import torchvision.models as models
+import torchmetrics
+import torchvision
+from pytorch_lightning.trainer.supporters import CombinedLoader
 from scipy.stats import permutation_test
-from torch.nn.functional import one_hot
 from utils.helpers import stat_C2ST
-from wilds.datasets.download_utils import extract_archive
 
-
-def get_classification_model(params, log_dir=None, download=True):
-
-    checkpoint_path = params["task_classifier_path"]
-
-    if log_dir is not None:
-        checkpoint_path = os.path.join(log_dir, "model.pt")
-
-    # FIXME make sure in the end, all trained models are loadable. Consistency issue with self and self.model
-
-    if params["task_classifier_type"] == "mnist":
-        model = MNISTNet(
-            checkpoint_path=checkpoint_path, n_outputs=params["n_outputs"], download=download
-        )
-    elif params["task_classifier_type"] == "camelyon":
-        # TODO: remove_idx config for camelyon as well
-        outer_model = CamelyonDensenet(checkpoint_path=checkpoint_path)
-        model = outer_model.model
-    else:
-        raise NotImplementedError
-
-    return model
+from core.mmdd import assemble_loss, mmd_test
+from core.muks import mass_ks_test
 
 
 # TODO maybe move to utils?
@@ -74,17 +52,11 @@ def initialize_optimizer(
     return optimizer
 
 
-import pytorch_lightning as pl
-import torchmetrics
-import torchvision
-from pytorch_lightning.trainer.supporters import CombinedLoader
-
-
 class DataModule(pl.LightningDataModule):
-    def __init__(self, dataloader, domains=["p", "q"]):
-        self.train_loaders = {domain: dataloader["train"][domain] for domain in domains}
-        self.val_loaders = {domain: dataloader["validation"][domain] for domain in domains}
-        self.test_loaders = {domain: dataloader["test"][domain] for domain in domains}
+    def __init__(self, dataloader):
+        self.train_loaders = dataloader["train"]
+        self.val_loaders = dataloader["validation"]
+        self.test_loaders = dataloader["test"]
 
         super().__init__()
 
@@ -168,19 +140,162 @@ class BaseClassifier(pl.LightningModule):
         self.log("val/loss", loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
         self.log("val/acc", self.val_acc, on_step=True, on_epoch=True, prog_bar=True, logger=True)
 
-        img_grid = torchvision.utils.make_grid(x[:8], normalize=True)
+        return {"loss": loss}
 
-        self.logger.experiment.add_image("val/img", img_grid, self.trainer.global_step)
+
+class MaxKernel(BaseClassifier):
+    def __init__(self, in_channels, img_size, optim_config, loss_type, loss_lambda=10**-6):
+        super(BaseClassifier, self).__init__()
+
+        self.loss_fn = assemble_loss(loss_type=loss_type, loss_lambda=loss_lambda)
+
+        model = Featurizer(n_channels=in_channels, img_size=img_size)
+
+        self.model = model
+
+        self.optim_params = optim_config
+
+    def forward(self, x):
+        logits = self.model(x)
+        return logits
+
+    def training_step(self, batch, batch_idx) -> None:
+
+        x_p, *_ = batch["p"]
+        x_q, *_ = batch["q"]
+
+        feat_p = self.model(x_p)
+        feat_q = self.model(x_q)
+
+        ep = self.model.ep
+        sigma = self.model.sigma_sq
+        sigma0_u = self.model.sigma0_sq
+
+        loss = self.loss_fn(feat_p, feat_q, x_p, x_q, sigma, sigma0_u, ep)
+
+        self.log("train/loss", loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
 
         return {"loss": loss}
+
+    def validation_step(self, batch, batch_idx) -> None:
+
+        x_p, *_ = batch["p"]
+        x_q, *_ = batch["q"]
+
+        feat_p = self.model(x_p)
+        feat_q = self.model(x_q)
+
+        ep = self.model.ep
+        sigma = self.model.sigma_sq
+        sigma0_u = self.model.sigma0_sq
+
+        loss = self.loss_fn(feat_p, feat_q, x_p, x_q, sigma, sigma0_u, ep)
+
+        self.log("val/loss", loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+
+        alpha = 0.05
+        num_permutations = 100
+
+        h_u = mmd_test(
+            x_p,
+            x_q,
+            self.model,
+            num_permutations=num_permutations,
+            alpha=alpha,
+        )
+
+        img_p = torchvision.utils.make_grid(x_p[:8], normalize=True)
+        img_q = torchvision.utils.make_grid(x_q[:8], normalize=True)
+
+        self.logger.experiment.add_image("val/img_p", img_p, self.trainer.global_step)
+        self.logger.experiment.add_image("val/img_q", img_q, self.trainer.global_step)
+
+        return {"loss": loss, "hypothesis_rejected": h_u}
+
+    def validation_epoch_end(self, outputs):
+
+        loss = torch.stack([x["loss"] for x in outputs])
+        hypothesis_rejected = np.stack([x["hypothesis_rejected"] for x in outputs])
+
+        # TODO figure out how to calculate power for specific sample size..
+
+        loss = torch.mean(loss)
+
+        if torch.isnan(loss):
+            power = np.nan
+        else:
+            power = np.mean(hypothesis_rejected)
+
+        self.log("val/power", power, on_epoch=True, prog_bar=True, logger=True)
+
+
+def repeated_test(x_pop, y_pop, test_fun, num_reps=100, alpha=0.05, sample_size=100):
+
+    power = 0
+    type_1_err = 0
+
+    for _ in range(num_reps):
+
+        x = x_pop[np.random.choice(x_pop.shape[0], size=sample_size, replace=True)]
+        x2 = x_pop[np.random.choice(x_pop.shape[0], size=sample_size, replace=True)]
+        y = y_pop[np.random.choice(y_pop.shape[0], size=sample_size, replace=True)]
+
+        power += test_fun(x, y) < alpha
+        type_1_err += test_fun(x, x2) < alpha
+
+    power = power / num_reps
+    type_1_err = type_1_err / num_reps
+
+    return power, type_1_err
 
 
 class TaskClassifier(BaseClassifier):
     def training_step(self, batch, batch_idx) -> None:
-        return super().training_step(batch["p"], batch_idx)
 
-    def validation_step(self, batch, batch_idx) -> None:
-        return super().validation_step(batch["p"], batch_idx)
+        # for the case batch consists of more than x, y (e.g. x, y, m), pass only x, y
+        return super().training_step(batch["p"][:2], batch_idx)
+
+    def validation_step(self, batch, batch_idx):
+
+        # Task accuracy
+
+        outputs = super().validation_step(batch["p"][:2], batch_idx)
+
+        # TODO: subgroup analysis
+        #       Need to access meta information, which is dataset dependent.. child classes?
+
+        x_p, *_ = batch["p"]
+        x_q, *_ = batch["q"]
+
+        img_p = torchvision.utils.make_grid(x_p[:8], normalize=True)
+        img_q = torchvision.utils.make_grid(x_q[:8], normalize=True)
+
+        self.logger.experiment.add_image("val/img_p", img_p, self.trainer.global_step)
+        self.logger.experiment.add_image("val/img_q", img_q, self.trainer.global_step)
+
+        sm = nn.Softmax(dim=1)
+
+        y_p_sm = sm(self.model(x_p))
+        y_q_sm = sm(self.model(x_q))
+
+        outputs["y_p_sm"] = y_p_sm
+        outputs["y_q_sm"] = y_q_sm
+
+        return outputs
+
+    def validation_epoch_end(self, outputs):
+
+        y_p_sm = torch.cat([x["y_p_sm"] for x in outputs]).detach().cpu().numpy()
+        y_q_sm = torch.cat([x["y_q_sm"] for x in outputs]).detach().cpu().numpy()
+
+        # TODO: check if correct: draw multi-D sample (multiple classes)
+
+        power, type_1_err = repeated_test(
+            y_p_sm, y_q_sm, mass_ks_test, num_reps=10, alpha=0.05, sample_size=100
+        )
+
+        self.log("val/power", power, on_epoch=True, prog_bar=True, logger=True)
+        self.log("val/type_1err", type_1_err, on_epoch=True, prog_bar=True, logger=True)
 
 
 class DomainClassifier(BaseClassifier):
@@ -213,6 +328,15 @@ class DomainClassifier(BaseClassifier):
 
         outputs = super().validation_step(prepped_batch, batch_idx)
 
+        x_p, *_ = batch["p"]
+        x_q, *_ = batch["q"]
+
+        img_p = torchvision.utils.make_grid(x_p[:8], normalize=True)
+        img_q = torchvision.utils.make_grid(x_q[:8], normalize=True)
+
+        self.logger.experiment.add_image("val/img_p", img_p, self.trainer.global_step)
+        self.logger.experiment.add_image("val/img_q", img_q, self.trainer.global_step)
+
         outputs["y"] = y
         outputs["y_logits"] = y_logits
 
@@ -220,90 +344,24 @@ class DomainClassifier(BaseClassifier):
 
     def validation_epoch_end(self, outputs):
 
-        # Log outputs
-        # losses = [x["loss"] for x in outputs]
         y = torch.cat([x["y"] for x in outputs])
         y_logits = torch.cat([x["y_logits"] for x in outputs])
-        # y = torch.stack(outputs["y"])
-        # y_logits = torch.stack(outputs["y_logits"])
-        # y, y_logits = self.val_y, self.y_logits
         y_pred = torch.argmax(y_logits, dim=1)
         y_sm = torch.softmax(y_logits, dim=1)
 
         sample_p = y_sm[y == 1, 1].detach().cpu().numpy()
         sample_q = y_sm[y == 0, 1].detach().cpu().numpy()
 
-        power = 0
-        type_1_err = 0
+        def permutation_test_wrapper(x, y):
+            res = permutation_test((x, y), stat_C2ST)
+            return res.pvalue
 
-        # TODO all of below configurable
-        num_reps = 10
-        alpha = 0.05
-        sample_size = 100
-
-        for _ in range(num_reps):
-
-            x = np.random.choice(sample_p, size=sample_size, replace=True)
-            x2 = np.random.choice(sample_p, size=sample_size, replace=True)
-            y = np.random.choice(sample_q, size=sample_size, replace=True)
-
-            res_power = permutation_test((x, y), stat_C2ST)
-            res_type_1_err = permutation_test((x, x2), stat_C2ST)
-
-            power += res_power.pvalue < alpha
-            type_1_err += res_type_1_err.pvalue < alpha
-
-        power = power / num_reps
-        type_1_err = type_1_err / num_reps
+        power, type_1_err = repeated_test(
+            sample_p, sample_q, permutation_test_wrapper, num_reps=10, alpha=0.05, sample_size=100
+        )
 
         self.log("val/power", power, on_epoch=True, prog_bar=True, logger=True)
         self.log("val/type_1err", type_1_err, on_epoch=True, prog_bar=True, logger=True)
-
-
-class CamelyonDensenet(nn.Module):
-    """This is a wrapper around densenet to allow loading trained
-    Camelyon ERM models.
-    """
-
-    def __init__(self, checkpoint_path=None, download=True):
-        super().__init__()
-        self.model = models.densenet121(num_classes=2)
-
-        self.device = torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
-
-        out_dir = os.path.dirname(checkpoint_path)
-        os.makedirs(out_dir, exist_ok=True)
-
-        self.logger = logging.getLogger("camelyon_classification")
-        self.logger.addHandler(logging.FileHandler(os.path.join(out_dir, "camelyon.log")))
-        self.logger.setLevel(logging.INFO)
-
-        self.checkpoint_path = checkpoint_path
-
-        trained_models_url = "https://drive.google.com/uc?id=1fYmNcgvm91YnMRX4isGAXVors9I17oWD"
-        archive = os.path.join(out_dir, "archive.tar.gz")
-
-        if os.path.exists(checkpoint_path):
-            self.load_checkpoint()
-        else:
-            if download:
-                gdown.download(trained_models_url, archive, quiet=False)
-
-                self.logger.info("Extracting {} to {}".format(archive, out_dir))
-                extract_archive(archive, out_dir, True)
-
-                self.load_checkpoint()
-            else:
-                self.logger.warning("Dataset does not exist. Download it or train the model")
-
-    def load_checkpoint(self):
-
-        checkpoint = torch.load(self.checkpoint_path, map_location=self.device)
-        self.load_state_dict(checkpoint["algorithm"])
-
-        self.model = self.model.to(self.device)
-
-        return self.model
 
 
 # Define the deep network for MMD-D
@@ -355,27 +413,3 @@ class Featurizer(nn.Module):
     @property
     def sigma0_sq(self):
         return self.sigma0OPT**2
-
-
-def model_fn(seed: int, params: Dict) -> torch.nn.Module:
-    """
-    Builds a model object for the given config
-    Args:
-        data_loaders: a dictionary of data loaders
-        seed: random seed (e.g. for model initialization)
-    Returns:
-        Instance of torch.nn.Module
-    """
-
-    required_arguments = ["channels", "img_size"]
-    for ele in required_arguments:
-        assert ele in params
-
-    # just for safety: remove any potential unexpected items
-    params = {k: v for k, v in params.items() if k in required_arguments}
-
-    torch.manual_seed(seed)  # for reproducibility (almost)
-
-    model = Featurizer(n_channels=params["channels"], img_size=params["img_size"])
-
-    return model
