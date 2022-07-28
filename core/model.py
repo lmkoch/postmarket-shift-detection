@@ -129,7 +129,9 @@ class BaseClassifier(pl.LightningModule):
             logger=True,
         )
 
-        return {"loss": loss}
+        y_pred = torch.argmax(y_pred, dim=1)
+
+        return {"loss": loss, "y": y, "y_pred": y_pred}
 
     def validation_step(self, val_batch, batch_idx):
         x, y = val_batch
@@ -140,18 +142,40 @@ class BaseClassifier(pl.LightningModule):
         self.log("val/loss", loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
         self.log("val/acc", self.val_acc, on_step=True, on_epoch=True, prog_bar=True, logger=True)
 
-        return {"loss": loss}
+        y_pred = torch.argmax(y_pred, dim=1)
+
+        return {"loss": loss, "y": y, "y_pred": y_pred}
 
 
 class MaxKernel(BaseClassifier):
-    def __init__(self, in_channels, img_size, optim_config, loss_type, loss_lambda=10**-6):
+    def __init__(
+        self,
+        in_channels,
+        img_size,
+        optim_config,
+        loss_type,
+        loss_lambda=10**-6,
+        feature_extractor="liu",
+    ):
         super(BaseClassifier, self).__init__()
 
         self.loss_fn = assemble_loss(loss_type=loss_type, loss_lambda=loss_lambda)
 
-        model = Featurizer(n_channels=in_channels, img_size=img_size)
+        if feature_extractor == "liu":
+            self.model = Featurizer(n_channels=in_channels, img_size=img_size)
+        elif feature_extractor == "resnet50":
+            self.model = torchvision.models.resnet50(pretrained=True)
+            self.model.conv1 = nn.Conv2d(
+                in_channels, 64, kernel_size=7, stride=2, padding=3, bias=False
+            )
+            self.model.fc = nn.Linear(self.model.fc.in_features, 128)
+        else:
+            raise ValueError(f"Feature extractor not configured: {feature_extractor}")
 
-        self.model = model
+        # Other parameters
+        self.epsilonOPT = nn.Parameter(torch.log(torch.rand(1) * 10 ** (-10)))
+        self.sigmaOPT = nn.Parameter(torch.ones(1) * np.sqrt(2 * 32 * 32))
+        self.sigma0OPT = nn.Parameter(torch.ones(1) * np.sqrt(0.005))
 
         self.optim_params = optim_config
 
@@ -167,9 +191,9 @@ class MaxKernel(BaseClassifier):
         feat_p = self.model(x_p)
         feat_q = self.model(x_q)
 
-        ep = self.model.ep
-        sigma = self.model.sigma_sq
-        sigma0_u = self.model.sigma0_sq
+        ep = self.ep
+        sigma = self.sigma_sq
+        sigma0_u = self.sigma0_sq
 
         loss = self.loss_fn(feat_p, feat_q, x_p, x_q, sigma, sigma0_u, ep)
 
@@ -185,9 +209,9 @@ class MaxKernel(BaseClassifier):
         feat_p = self.model(x_p)
         feat_q = self.model(x_q)
 
-        ep = self.model.ep
-        sigma = self.model.sigma_sq
-        sigma0_u = self.model.sigma0_sq
+        ep = self.ep
+        sigma = self.sigma_sq
+        sigma0_u = self.sigma0_sq
 
         loss = self.loss_fn(feat_p, feat_q, x_p, x_q, sigma, sigma0_u, ep)
 
@@ -200,6 +224,9 @@ class MaxKernel(BaseClassifier):
             x_p,
             x_q,
             self.model,
+            ep,
+            sigma,
+            sigma0_u,
             num_permutations=num_permutations,
             alpha=alpha,
         )
@@ -227,6 +254,18 @@ class MaxKernel(BaseClassifier):
             power = np.mean(hypothesis_rejected)
 
         self.log("val/power", power, on_epoch=True, prog_bar=True, logger=True)
+
+    @property
+    def ep(self):
+        return torch.exp(self.epsilonOPT) / (1 + torch.exp(self.epsilonOPT))
+
+    @property
+    def sigma_sq(self):
+        return self.sigmaOPT**2
+
+    @property
+    def sigma0_sq(self):
+        return self.sigma0OPT**2
 
 
 def repeated_test(x_pop, y_pop, test_fun, num_reps=100, alpha=0.05, sample_size=100):
@@ -288,14 +327,124 @@ class TaskClassifier(BaseClassifier):
         y_p_sm = torch.cat([x["y_p_sm"] for x in outputs]).detach().cpu().numpy()
         y_q_sm = torch.cat([x["y_q_sm"] for x in outputs]).detach().cpu().numpy()
 
+        batch_size = outputs[0]["y_p_sm"].shape[0]
         # TODO: check if correct: draw multi-D sample (multiple classes)
 
+        # TODO: test loop with
+        # - various sample sizes and
+        # - num_reps ~= 100
+        # - enough permutations
+
         power, type_1_err = repeated_test(
-            y_p_sm, y_q_sm, mass_ks_test, num_reps=10, alpha=0.05, sample_size=100
+            y_p_sm, y_q_sm, mass_ks_test, num_reps=100, alpha=0.05, sample_size=batch_size
         )
 
         self.log("val/power", power, on_epoch=True, prog_bar=True, logger=True)
         self.log("val/type_1err", type_1_err, on_epoch=True, prog_bar=True, logger=True)
+
+
+class EyepacsClassifier(TaskClassifier):
+    def training_epoch_end(self, outputs):
+
+        super().training_epoch_end(outputs)
+
+        # TODO (for train and val end epoch): acc, bal_acc, kappa
+        # TODO: for eyepacs only: binary onset acc
+
+        from sklearn.metrics import (
+            accuracy_score,
+            balanced_accuracy_score,
+            confusion_matrix,
+        )
+        from utils.helpers import quadratic_weighted_kappa
+
+        y = torch.cat([x["y"] for x in outputs]).detach().cpu().numpy()
+        y_pred = torch.cat([x["y_pred"] for x in outputs]).detach().cpu().numpy()
+
+        conf_mat = confusion_matrix(y, y_pred, labels=range(5))
+
+        self.log(
+            "train/bal_acc",
+            balanced_accuracy_score(y, y_pred),
+            on_epoch=True,
+            prog_bar=True,
+            logger=True,
+        )
+
+        self.log(
+            "train/bin_acc_onset_1",
+            accuracy_score(y >= 1.0, y_pred >= 1.0),
+            on_epoch=True,
+            prog_bar=True,
+            logger=True,
+        )
+
+        self.log(
+            "train/bin_acc_onset_2",
+            accuracy_score(y >= 2.0, y_pred >= 2.0),
+            on_epoch=True,
+            prog_bar=True,
+            logger=True,
+        )
+
+        self.log(
+            "train/kappa",
+            quadratic_weighted_kappa(conf_mat),
+            on_epoch=True,
+            prog_bar=True,
+            logger=True,
+        )
+
+    def validation_epoch_end(self, outputs):
+
+        super().validation_epoch_end(outputs)
+
+        # TODO (for train and val end epoch): acc, bal_acc, kappa
+        # TODO: for eyepacs only: binary onset acc
+
+        from sklearn.metrics import (
+            accuracy_score,
+            balanced_accuracy_score,
+            confusion_matrix,
+        )
+        from utils.helpers import quadratic_weighted_kappa
+
+        y = torch.cat([x["y"] for x in outputs]).detach().cpu().numpy()
+        y_pred = torch.cat([x["y_pred"] for x in outputs]).detach().cpu().numpy()
+
+        conf_mat = confusion_matrix(y, y_pred, labels=range(5))
+
+        self.log(
+            "val/bal_acc",
+            balanced_accuracy_score(y, y_pred),
+            on_epoch=True,
+            prog_bar=True,
+            logger=True,
+        )
+
+        self.log(
+            "val/bin_acc_onset_1",
+            accuracy_score(y >= 1.0, y_pred >= 1.0),
+            on_epoch=True,
+            prog_bar=True,
+            logger=True,
+        )
+
+        self.log(
+            "val/bin_acc_onset_2",
+            accuracy_score(y >= 2.0, y_pred >= 2.0),
+            on_epoch=True,
+            prog_bar=True,
+            logger=True,
+        )
+
+        self.log(
+            "val/kappa",
+            quadratic_weighted_kappa(conf_mat),
+            on_epoch=True,
+            prog_bar=True,
+            logger=True,
+        )
 
 
 class DomainClassifier(BaseClassifier):
@@ -356,8 +505,15 @@ class DomainClassifier(BaseClassifier):
             res = permutation_test((x, y), stat_C2ST)
             return res.pvalue
 
+        batch_size = outputs[0]["y"].shape[0]
+
         power, type_1_err = repeated_test(
-            sample_p, sample_q, permutation_test_wrapper, num_reps=10, alpha=0.05, sample_size=100
+            sample_p,
+            sample_q,
+            permutation_test_wrapper,
+            num_reps=100,
+            alpha=0.05,
+            sample_size=batch_size,
         )
 
         self.log("val/power", power, on_epoch=True, prog_bar=True, logger=True)
@@ -365,9 +521,9 @@ class DomainClassifier(BaseClassifier):
 
 
 # Define the deep network for MMD-D
-class Featurizer(nn.Module):
+class FeaturizerLiu(nn.Module):
     def __init__(self, n_channels=1, img_size=32):
-        super(Featurizer, self).__init__()
+        super(FeaturizerLiu, self).__init__()
 
         def discriminator_block(in_filters, out_filters, bn=False):
             block = [
@@ -390,17 +546,28 @@ class Featurizer(nn.Module):
         ds_size = img_size // 2**4
         self.adv_layer = nn.Sequential(nn.Linear(128 * ds_size**2, 128))
 
-        # Other parameters
-        self.epsilonOPT = nn.Parameter(torch.log(torch.rand(1) * 10 ** (-10)))
-        self.sigmaOPT = nn.Parameter(torch.ones(1) * np.sqrt(2 * 32 * 32))
-        self.sigma0OPT = nn.Parameter(torch.ones(1) * np.sqrt(0.005))
-
     def forward(self, img):
         out = self.model(img)
         out = out.view(out.shape[0], -1)
         feature = self.adv_layer(out)
 
         return feature
+
+
+class Featurizer(FeaturizerLiu):
+    """Featurizer class used for old code (including ep etc member vars)
+
+    Args:
+        FeaturizerLiu (_type_): _description_
+    """
+
+    def __init__(self, n_channels=1, img_size=32):
+        super(Featurizer, self).__init__(n_channels=n_channels, img_size=img_size)
+
+        # Other parameters
+        self.epsilonOPT = nn.Parameter(torch.log(torch.rand(1) * 10 ** (-10)))
+        self.sigmaOPT = nn.Parameter(torch.ones(1) * np.sqrt(2 * 32 * 32))
+        self.sigma0OPT = nn.Parameter(torch.ones(1) * np.sqrt(0.005))
 
     @property
     def ep(self):

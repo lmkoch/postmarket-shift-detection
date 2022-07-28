@@ -14,12 +14,12 @@ dataset:
             - rotation
         p: # TODO / TODO: proper subsets
             dataset: 'camelyon'
-            data_root: '/gpfs01/berens/user/lkoch/data'
-            # data_root: './data'
+            # data_root: '/gpfs01/berens/user/lkoch/data'
+            data_root: './data/download_complete'
         q: # TODO / TODO: proper subsets
             dataset: 'camelyon'
-            data_root: '/gpfs01/berens/user/lkoch/data'
-            # data_root: './data'
+            # data_root: '/gpfs01/berens/user/lkoch/data'
+            data_root: './data/download_complete'
         data_augmentation_args:
           horizontal_flip:
             prob: 0.5
@@ -50,7 +50,7 @@ dataset:
           value_fill: 0 # NOT a data augmentation operation. pixel fill value for the area outside the image
     # dataloader
     dl:
-        batch_size: 64
+        batch_size: 16
         p:
             use_sampling: True
             sampling_by_variable: 'hospitals'
@@ -67,6 +67,7 @@ mmd:
         in_channels: 3
         loss_type: 'mmd2'
         loss_lambda: 10**(-6)
+        feature_extractor: 'resnet50'
         optim_config:
             optimizer: ADAM # SGD / ADAM
             learning_rate: 1.e-5 # initial learning rate
@@ -75,7 +76,7 @@ mmd:
             weight_decay: 0.0005 # set to 0 to disable weight decay
             lr_scheduler: True    
     trainer:
-        epochs: 2 
+        epochs: 10 
 domain_classifier:
     model:
         arch: 'resnet50'
@@ -83,13 +84,13 @@ domain_classifier:
         n_outputs: 2
         optim_config:
             optimizer: ADAM # SGD / ADAM
-            learning_rate: 1.e-5 # initial learning rate
+            learning_rate: 1.e-6 # initial learning rate
             momentum: 0.9 # only for SGD. set to 0 to disable momentum
             nesterov: True # only for SGD.
             weight_decay: 0.0005 # set to 0 to disable weight decay
             lr_scheduler: True        
     trainer:
-        epochs: 2                                                       # Adapt depending on dataset
+        epochs: 10                                                      # Adapt depending on dataset
     eval:
         n_permute: 100
         alpha: 0.05
@@ -104,13 +105,13 @@ task_classifier:
         n_outputs: 2 
         optim_config:
             optimizer: ADAM # SGD / ADAM
-            learning_rate: 1.e-5 # initial learning rate
+            learning_rate: 1.e-6 # initial learning rate
             momentum: 0.9 # only for SGD. set to 0 to disable momentum
             nesterov: True # only for SGD.
             weight_decay: 0.0005 # set to 0 to disable weight decay
             lr_scheduler: True
     trainer:
-        epochs: 2                                                       # Adapt depending on dataset
+        epochs: 10                                                       # Adapt depending on dataset
 
 
 

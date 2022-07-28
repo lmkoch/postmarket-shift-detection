@@ -70,15 +70,16 @@ mmd:
         in_channels: 1
         loss_type: 'mmd2'
         loss_lambda: 10**(-6)
+        feature_extractor: 'resnet50'
         optim_config:
             optimizer: ADAM # SGD / ADAM
-            learning_rate: 1.e-5 # initial learning rate
+            learning_rate: 1.e-4 # initial learning rate
             momentum: 0.9 # only for SGD. set to 0 to disable momentum
             nesterov: True # only for SGD.
             weight_decay: 0.0005 # set to 0 to disable weight decay
             lr_scheduler: True    
     trainer:
-        epochs: 2    
+        epochs: 10    
 domain_classifier:
     model:
         arch: 'resnet50'
@@ -92,7 +93,7 @@ domain_classifier:
             weight_decay: 0.0005 # set to 0 to disable weight decay
             lr_scheduler: True        
     trainer:
-        epochs: 2                                                       # Adapt depending on dataset
+        epochs: 10                                                       # Adapt depending on dataset
     eval:
         n_permute: 100
         alpha: 0.05
@@ -114,7 +115,7 @@ task_classifier:
             weight_decay: 0.0005 # set to 0 to disable weight decay
             lr_scheduler: True
     trainer:
-        epochs: 2                                                       # Adapt depending on dataset
+        epochs: 10                                                       # Adapt depending on dataset
 
 
 

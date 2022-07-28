@@ -27,8 +27,8 @@ Mark Boss (mark.boss@uni-tuebingen.de)
 import argparse
 import os
 import sys
-from typing import Tuple
 import time
+from typing import Tuple
 
 
 def base_parser():
@@ -36,12 +36,12 @@ def base_parser():
 
     parser.add_argument(
         "--basedir",
-        default='./slurmlog',
+        default="./slurmlog",
         type=str,
         help="Basedir to store the slurm logs. Runs are organized in folder EXPNAME.",
     )
     parser.add_argument(
-        "--expname", default=f'{time.time()}', type=str, help="log folder to create."
+        "--expname", default=f"{time.time()}", type=str, help="log folder to create."
     )
 
     return parser
@@ -117,12 +117,12 @@ def parse_args():
     parser.add_argument(
         "--base_mem",
         type=int,
-        default=8,
+        default=60,
     )
     parser.add_argument(
         "--base_cpu",
         type=int,
-        default=4,
+        default=8,
     )
 
     return parser.parse_args(runner_args), main_args
@@ -177,9 +177,7 @@ def build_submit_command(runner_args, main_args):
         runner_args.base_cpu,
     )
 
-    time = "{}-{}".format(
-        runner_args.duration_hours // 24, runner_args.duration_hours % 24
-    )
+    time = "{}-{}".format(runner_args.duration_hours // 24, runner_args.duration_hours % 24)
 
     with open(job_file, "w") as sbatch_file:
         sbatch_file.writelines("#!/bin/bash\n")
@@ -200,13 +198,14 @@ def build_submit_command(runner_args, main_args):
         sbatch_file.writelines("scontrol show job ${SLURM_JOB_ID}\n\n")
         sbatch_file.writelines(
             [
+                "sudo /opt/eyepacs/start_eyepacs_mount.sh  \n",
                 "source ~/.bashrc \n",
                 "which conda\n" "conda env list\n" "nvidia-smi\n\n",
                 # "cd {}\n".format(os.path.dirname(os.path.realpath(__file__))),
-                "ls -l\n\n"
-                "conda activate {}\n".format(get_current_conda_environment()),
+                "ls -l\n\n" "conda activate {}\n".format(get_current_conda_environment()),
                 "which python\n\n",
                 " ".join(main_args) + "\n",
+                "sudo /opt/eyepacs/stop_eyepacs_mount.sh  \n",
             ]
         )
 

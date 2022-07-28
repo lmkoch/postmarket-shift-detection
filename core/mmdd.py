@@ -33,11 +33,11 @@ def assemble_loss(loss_type, loss_lambda):
     return loss_fn
 
 
-def mmd_test(x_p, x_q, model, num_permutations, alpha=0.05):
+def mmd_test(x_p, x_q, model, ep, sigma, sigma0_u, num_permutations, alpha=0.05):
 
-    ep = model.ep
-    sigma = model.sigma_sq
-    sigma0_u = model.sigma0_sq
+    # ep = model.ep
+    # sigma = model.sigma_sq
+    # sigma0_u = model.sigma0_sq
 
     S = torch.cat([x_p, x_q], 0)
     batch_size = x_p.shape[0]
@@ -340,6 +340,9 @@ class Trainer:
                 x_p,
                 x_q,
                 self.model,
+                ep,
+                sigma,
+                sigma0_u,
                 num_permutations=num_permutations,
                 alpha=self.eval_config["alpha"],
             )
@@ -349,6 +352,9 @@ class Trainer:
                 x_p,
                 x_p2,
                 self.model,
+                ep,
+                sigma,
+                sigma0_u,
                 num_permutations=num_permutations,
                 alpha=self.eval_config["alpha"],
             )

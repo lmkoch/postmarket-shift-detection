@@ -182,3 +182,27 @@ def stat_C2ST(sample_a, sample_b):
     stat = abs(sample_a.mean() - sample_b.mean())
 
     return stat
+
+
+def quadratic_weighted_kappa(conf_mat):
+    assert conf_mat.shape[0] == conf_mat.shape[1]
+    cate_num = conf_mat.shape[0]
+
+    # Quadratic weighted matrix
+    weighted_matrix = np.zeros((cate_num, cate_num))
+    for i in range(cate_num):
+        for j in range(cate_num):
+            weighted_matrix[i][j] = 1 - float(((i - j) ** 2) / ((cate_num - 1) ** 2))
+
+    # Expected matrix
+    ground_truth_count = np.sum(conf_mat, axis=1)
+    pred_count = np.sum(conf_mat, axis=0)
+    expected_matrix = np.outer(ground_truth_count, pred_count)
+
+    # Normalization
+    conf_mat = conf_mat / conf_mat.sum()
+    expected_matrix = expected_matrix / expected_matrix.sum()
+
+    observed = (conf_mat * weighted_matrix).sum()
+    expected = (expected_matrix * weighted_matrix).sum()
+    return (observed - expected) / (1 - expected)
