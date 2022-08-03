@@ -18,15 +18,13 @@ from wilds.datasets.camelyon17_dataset import Camelyon17Dataset
 from wilds.datasets.wilds_dataset import WILDSDataset
 
 
-def dataset_fn(seed: int, params_dict) -> Dict:
+def dataset_fn(params_dict, boot_strap_test=False) -> Dict:
     """
     Returns data loaders for the given config
     Args:
-        seed: random seed that will make shuffling and other random operations deterministic
     Returns:
         data_loaders: containing "train", "validation" and "test" data loaders
     """
-    np.random.seed(seed)
 
     required_keys = ["ds", "dl"]
 
@@ -52,6 +50,11 @@ def dataset_fn(seed: int, params_dict) -> Dict:
 
         for split in ["train", "val", "test"]:
 
+            boot_strap = False
+
+            if split in ["val", "test"] and boot_strap_test:
+                boot_strap = True
+
             dataloader[split][p_q] = get_dataloader(
                 dataset[split],
                 batch_size=params_dl["batch_size"],
@@ -60,6 +63,7 @@ def dataset_fn(seed: int, params_dict) -> Dict:
                 sampling_weights=params_dl[p_q]["sampling_weights"],
                 num_workers=params_dl["num_workers"],
                 pin_memory=params_dl["pin_memory"],
+                boot_strapping=boot_strap,
             )
 
     return {
@@ -156,6 +160,7 @@ def get_dataloader(
     sampling_weights: list,
     num_workers: int = 4,
     pin_memory: bool = True,
+    boot_strapping: bool = False,
 ):
     """Get dataloader based on a dataset and minibatch sampling strategy
 
@@ -168,15 +173,28 @@ def get_dataloader(
         Dataloader:
     """
 
+    if boot_strapping:
+        num_samples = batch_size * 100
+        replacement = True
+    else:
+        num_samples = len(dataset)
+        replacement = False
+
     if use_sampling:
         # weights for balanced minibatches
         weights_train = balanced_weights(
             dataset, rebalance_weights=sampling_weights, balance_variable=sampling_by_variable
         )
-        sampler = torch.utils.data.sampler.WeightedRandomSampler(weights_train, len(weights_train))
+        sampler = torch.utils.data.sampler.WeightedRandomSampler(
+            weights_train, num_samples=num_samples
+        )
         dataloader_kwargs = {"sampler": sampler}
+
     else:
-        dataloader_kwargs = {"shuffle": True}
+        sampler = torch.utils.data.sampler.RandomSampler(
+            dataset, replacement=replacement, num_samples=num_samples
+        )
+        dataloader_kwargs = {"sampler": sampler}
 
     dataloader = torch.utils.data.DataLoader(
         dataset,
@@ -373,11 +391,37 @@ class EyepacsDataset(VisionDataset):
         self._metadata_df = self._metadata_df.query(f"patient_ethnicity in {list(ethnicities)}")
         self._metadata_df = self._metadata_df.query(f"diagnosis_image_dr_level in {dr_levels}")
 
-        # TODO: allow subset query here
+        # Age correction (due to wrong data export from Eyepacs Inc):
+        export_year = 2022
+        self._metadata_df["patient_age"] = self._metadata_df["patient_age"] - (
+            export_year - self._metadata_df["clinical_encounterDate"]
+        )
+
+        # co-morbidity: at least one diagnosis other than DR
+        co_diagnoses = [
+            "diagnosis_cataract",
+            "diagnosis_dme",
+            "diagnosis_glaucoma",
+            "diagnosis_maculopathy",
+            "diagnosis_occlusion",
+            "diagnosis_other_referrable",
+            "diagnosis_unspecified_complications",
+        ]
+
+        self._metadata_df["diagnoses_comorbidities"] = (
+            self._metadata_df[co_diagnoses].sum(axis=1) > 0
+        )
+
+        # allow subset query here
 
         if subset_params is not None:
             # TODO check that this is a dict with keys in valid_keys and values are list of attributes to keep
-            valid_keys = ["patient_gender", "patient_ethnicity", "session_image_quality"]
+            valid_keys = [
+                "patient_gender",
+                "patient_ethnicity",
+                "session_image_quality",
+                "diagnoses_comorbidities",
+            ]
 
             for k, v in subset_params.items():
                 print(k, v)

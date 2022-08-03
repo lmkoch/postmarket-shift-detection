@@ -71,10 +71,18 @@ class DataModule(pl.LightningDataModule):
 
 
 class BaseClassifier(pl.LightningModule):
-    def __init__(self, arch, in_channels, n_outputs, optim_config):
+    def __init__(self, arch, in_channels, n_outputs, loss_type, optim_config):
         super().__init__()
 
-        self.loss_fn = torch.nn.CrossEntropyLoss()
+        self.save_hyperparameters()
+
+        if loss_type == "cross_entropy":
+            self.loss_fn = torch.nn.CrossEntropyLoss()
+        # elif loss_type == "mean_squared_error":
+        #     self.loss_fn = torch.nn.MSELoss()
+        #     # FIXME would need to do a lot of changes to architecture etc to allow for MSE loss
+        else:
+            raise NotImplementedError(f"loss not configured: {loss_type}")
 
         if arch == "resnet50":
             self.model = torchvision.models.resnet50(pretrained=True)
@@ -158,6 +166,8 @@ class MaxKernel(BaseClassifier):
         feature_extractor="liu",
     ):
         super(BaseClassifier, self).__init__()
+
+        self.save_hyperparameters()
 
         self.loss_fn = assemble_loss(loss_type=loss_type, loss_lambda=loss_lambda)
 
@@ -296,12 +306,7 @@ class TaskClassifier(BaseClassifier):
 
     def validation_step(self, batch, batch_idx):
 
-        # Task accuracy
-
-        outputs = super().validation_step(batch["p"][:2], batch_idx)
-
-        # TODO: subgroup analysis
-        #       Need to access meta information, which is dataset dependent.. child classes?
+        outputs = self._shared_test_step(self, batch, batch_idx)
 
         x_p, *_ = batch["p"]
         x_q, *_ = batch["q"]
@@ -312,17 +317,28 @@ class TaskClassifier(BaseClassifier):
         self.logger.experiment.add_image("val/img_p", img_p, self.trainer.global_step)
         self.logger.experiment.add_image("val/img_q", img_q, self.trainer.global_step)
 
-        sm = nn.Softmax(dim=1)
+        return outputs
 
-        y_p_sm = sm(self.model(x_p))
-        y_q_sm = sm(self.model(x_q))
+    def test_step(self, batch, batch_idx) -> None:
 
-        outputs["y_p_sm"] = y_p_sm
-        outputs["y_q_sm"] = y_q_sm
-
+        outputs = self._shared_test_step(batch, batch_idx)
         return outputs
 
     def validation_epoch_end(self, outputs):
+
+        power, type_1_err = self._shared_epoch_end(outputs)
+
+        self.log("val/power", power, on_epoch=True, prog_bar=True, logger=True)
+        self.log("val/type_1err", type_1_err, on_epoch=True, prog_bar=True, logger=True)
+
+    def test_epoch_end(self, outputs):
+
+        power, type_1_err = self._shared_epoch_end(outputs)
+
+        self.log("test/power", power, on_epoch=True, prog_bar=True, logger=True)
+        self.log("test/type_1err", type_1_err, on_epoch=True, prog_bar=True, logger=True)
+
+    def _shared_epoch_end(self, outputs):
 
         y_p_sm = torch.cat([x["y_p_sm"] for x in outputs]).detach().cpu().numpy()
         y_q_sm = torch.cat([x["y_q_sm"] for x in outputs]).detach().cpu().numpy()
@@ -339,8 +355,36 @@ class TaskClassifier(BaseClassifier):
             y_p_sm, y_q_sm, mass_ks_test, num_reps=100, alpha=0.05, sample_size=batch_size
         )
 
-        self.log("val/power", power, on_epoch=True, prog_bar=True, logger=True)
-        self.log("val/type_1err", type_1_err, on_epoch=True, prog_bar=True, logger=True)
+        return power, type_1_err
+
+    def test_epoch_end(self, outputs):
+
+        power, type_1_err = self._shared_epoch_end(outputs)
+
+        self.log("test/power", power, on_epoch=True, prog_bar=True, logger=True)
+        self.log("test/type_1err", type_1_err, on_epoch=True, prog_bar=True, logger=True)
+
+    def _shared_test_step(self, batch, batch_idx):
+
+        # Task accuracy
+
+        outputs = super().validation_step(batch["p"][:2], batch_idx)
+
+        # TODO: subgroup analysis
+        #       Need to access meta information, which is dataset dependent.. child classes?
+
+        x_p, *_ = batch["p"]
+        x_q, *_ = batch["q"]
+
+        sm = nn.Softmax(dim=1)
+
+        y_p_sm = sm(self.model(x_p))
+        y_q_sm = sm(self.model(x_q))
+
+        outputs["y_p_sm"] = y_p_sm
+        outputs["y_q_sm"] = y_q_sm
+
+        return outputs
 
 
 class EyepacsClassifier(TaskClassifier):
@@ -466,6 +510,40 @@ class DomainClassifier(BaseClassifier):
 
     def validation_step(self, batch, batch_idx) -> None:
 
+        outputs = self._shared_test_step(batch, batch_idx)
+
+        x_p, *_ = batch["p"]
+        x_q, *_ = batch["q"]
+
+        img_p = torchvision.utils.make_grid(x_p[:8], normalize=True)
+        img_q = torchvision.utils.make_grid(x_q[:8], normalize=True)
+
+        self.logger.experiment.add_image("val/img_p", img_p, self.trainer.global_step)
+        self.logger.experiment.add_image("val/img_q", img_q, self.trainer.global_step)
+
+        return outputs
+
+    def validation_epoch_end(self, outputs):
+
+        power, type_1_err = self._shared_epoch_end(outputs)
+
+        self.log("val/power", power, on_epoch=True, prog_bar=True, logger=True)
+        self.log("val/type_1err", type_1_err, on_epoch=True, prog_bar=True, logger=True)
+
+    def test_step(self, batch, batch_idx) -> None:
+
+        outputs = self._shared_test_step(batch, batch_idx)
+        return outputs
+
+    def test_epoch_end(self, outputs):
+
+        power, type_1_err = self._shared_epoch_end(outputs)
+
+        self.log("test/power", power, on_epoch=True, prog_bar=True, logger=True)
+        self.log("test/type_1err", type_1_err, on_epoch=True, prog_bar=True, logger=True)
+
+    def _shared_test_step(self, batch, batch_idx) -> None:
+
         prepped_batch = self.prepare_batch_data(batch["p"][0], batch["q"][0])
 
         x, y = prepped_batch
@@ -477,21 +555,12 @@ class DomainClassifier(BaseClassifier):
 
         outputs = super().validation_step(prepped_batch, batch_idx)
 
-        x_p, *_ = batch["p"]
-        x_q, *_ = batch["q"]
-
-        img_p = torchvision.utils.make_grid(x_p[:8], normalize=True)
-        img_q = torchvision.utils.make_grid(x_q[:8], normalize=True)
-
-        self.logger.experiment.add_image("val/img_p", img_p, self.trainer.global_step)
-        self.logger.experiment.add_image("val/img_q", img_q, self.trainer.global_step)
-
         outputs["y"] = y
         outputs["y_logits"] = y_logits
 
         return outputs
 
-    def validation_epoch_end(self, outputs):
+    def _shared_epoch_end(self, outputs):
 
         y = torch.cat([x["y"] for x in outputs])
         y_logits = torch.cat([x["y_logits"] for x in outputs])
@@ -516,8 +585,7 @@ class DomainClassifier(BaseClassifier):
             sample_size=batch_size,
         )
 
-        self.log("val/power", power, on_epoch=True, prog_bar=True, logger=True)
-        self.log("val/type_1err", type_1_err, on_epoch=True, prog_bar=True, logger=True)
+        return power, type_1_err
 
 
 # Define the deep network for MMD-D

@@ -287,7 +287,7 @@ if __name__ == "__main__":
 
     # TODO provide transform params to dataset creator
 
-    dataloader = dataset_fn(seed=args.seed, params_dict=params["dataset"])
+    dataloader = dataset_fn(params_dict=params["dataset"])
 
     ###############################################################################################################################
     # Prepare model and training
@@ -314,7 +314,7 @@ if __name__ == "__main__":
     for ele in p_erase:
         params["dataset"]["ds"]["q"]["subgroup"]["p_erase"] = ele
 
-        dataloader = dataset_fn(seed=args.seed, params_dict=params["dataset"])
+        dataloader = dataset_fn(params_dict=params["dataset"])
 
         acc = model.eval_model(dataloader=dataloader["test"]["q"])
 

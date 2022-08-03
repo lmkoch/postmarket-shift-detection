@@ -7,7 +7,13 @@ import pytorch_lightning as pl
 from core.dataset import dataset_fn
 
 # TODO move to core data location
-from core.model import DataModule, DomainClassifier, MaxKernel, TaskClassifier
+from core.model import (
+    DataModule,
+    DomainClassifier,
+    EyepacsClassifier,
+    MaxKernel,
+    TaskClassifier,
+)
 from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.loggers import TensorBoardLogger
 from utils.config import hash_dict, load_config, save_config
@@ -19,14 +25,14 @@ def main(args, params):
     # Preparation
     ###############################################################################################################################
 
-    dataloader = dataset_fn(seed=args.seed, params_dict=params["dataset"])
+    # TODO check for weird seed stuff
+    pl.seed_everything(args.seed, workers=True)
+
+    dataloader = dataset_fn(params_dict=params["dataset"])
 
     ###############################################################################################################################
     # Run training: separate exp hashes for all three methods (matched with dataset config)
     ###############################################################################################################################
-
-    # TODO check for weird seed stuff
-    pl.seed_everything(args.seed, workers=True)
 
     def train_model(checkpoint_callbacks, module, param_category, data_frac=1):
 
@@ -47,18 +53,18 @@ def main(args, params):
         trainer = pl.Trainer(
             max_epochs=params[param_category]["trainer"]["epochs"],
             log_every_n_steps=10,
-            limit_train_batches=args.data_frac,  # TODO increase to 1.0 after debugging
-            limit_val_batches=args.data_frac,  # TODO increase to 1.0 after debugging
+            limit_train_batches=data_frac,  # TODO increase to 1.0 after debugging
+            limit_val_batches=data_frac,  # TODO increase to 1.0 after debugging
             logger=logger,
             callbacks=checkpoint_callbacks,
-            gpus=1,
+            gpus=0,
         )
 
         trainer.fit(model, datamodule=data)
 
-    # 1. MMD
+        return trainer
 
-    if args.run_mmdd:
+    if args.test_method == "mmdd":
         checkpoint_callbacks = [
             ModelCheckpoint(
                 monitor="val/loss",
@@ -76,19 +82,15 @@ def main(args, params):
             "checkpoint_callbacks": checkpoint_callbacks,
         }
 
-        train_model(**specs, data_frac=args.data_frac)
-
-    # 2. C2ST
-
-    if args.run_c2st:
+    elif args.test_method == "c2st":
         checkpoint_callbacks = [
-            ModelCheckpoint(
-                monitor="val/loss",
-                filename="best-loss-{epoch}-{step}",
-            ),
             ModelCheckpoint(
                 monitor="val/acc",
                 filename="best-acc-{epoch}-{step}",
+            ),
+            ModelCheckpoint(
+                monitor="val/loss",
+                filename="best-loss-{epoch}-{step}",
             ),
         ]
 
@@ -97,13 +99,9 @@ def main(args, params):
             "module": DomainClassifier,
             "checkpoint_callbacks": checkpoint_callbacks,
         }
-        train_model(**specs, data_frac=args.data_frac)
 
     # 3. MUKS
-
-    if args.run_muks:
-
-        from core.model import EyepacsClassifier
+    elif args.test_method == "muks":
 
         if params["dataset"]["ds"]["p"]["dataset"] == "eyepacs":
             model_class = EyepacsClassifier
@@ -127,40 +125,35 @@ def main(args, params):
             "checkpoint_callbacks": checkpoint_callbacks,
         }
 
-        train_model(**specs, data_frac=args.data_frac)
+    # Train model
 
-    #####################
+    trainer = train_model(**specs, data_frac=args.data_frac)
 
-    # Datasets:
+    # Eval
 
-    # 1. MMD:
-    # - same architecture, can use same model class
-
-    # 2. C2ST:
-    # - same architecture, can use same model class
-
-    # 3. Task:
-    #
-    # MNIST: resnet, measure acc
-    #
-    # Camelyon: resnet, measure acc
-    #
-    # Eyepacs: resnet, measure kappa -> extend Task classifier?
-    #          -> maybe measure binary acc? then extend task classifier to merge labels?
     #
 
-    # Task:
+    res = trainer.test(datamodule=DataModule(dataloader))
 
-    # TODO checkpointing stuff, how to load model in different trainer instance
+    # res [{'val/loss_epoch': 0.7246412634849548, 'val/acc_epoch': 0.5092648267745972, 'test/power': 0.42, 'test/type_1err': 0.08}]
 
-    # FYI. it’s now
-    # lightning_logs/version_{version number}/epoch_{epoch number}-step_{global_step}.ckpt
 
-    # and to access them:
+#####################
 
-    # version_number -> trainer.logger.version
-    # epoch_number -> trainer.current_epoch
-    # global_step -> trainer.global_step
+# Datasets:
+
+# Task:
+
+# TODO checkpointing stuff, how to load model in different trainer instance
+
+# FYI. it’s now
+# lightning_logs/version_{version number}/epoch_{epoch number}-step_{global_step}.ckpt
+
+# and to access them:
+
+# version_number -> trainer.logger.version
+# epoch_number -> trainer.current_epoch
+# global_step -> trainer.global_step
 
 
 if __name__ == "__main__":
@@ -193,13 +186,11 @@ if __name__ == "__main__":
         help="random seed",
     )
     parser.add_argument(
-        "--mmdd", dest="run_mmdd", action="store_true", help="Train MMD-D", default=False
-    )
-    parser.add_argument(
-        "--c2st", dest="run_c2st", action="store_true", help="Train C2ST", default=False
-    )
-    parser.add_argument(
-        "--muks", dest="run_muks", action="store_true", help="Train MUKS", default=False
+        "--method",
+        dest="test_method",
+        action="store",
+        help="Test Method (mmdd, c2st, muks)",
+        default="c2st",
     )
     parser.add_argument(
         "--data_frac",
