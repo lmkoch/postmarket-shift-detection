@@ -122,40 +122,6 @@ class DomainClassifier:
             pickle.dump(sample, f)
 
         ############################################################################################
-        # Test power and type I error
-
-        num_reps = self.eval_config["n_test_reps"]
-        num_reps = 10
-
-        # sample_sizes = [10, 30, 50, 100, 500, 1000]
-        sample_sizes = [10, 30]
-        powers = []
-        type_1_errs = []
-        for sample_size in sample_sizes:
-            print(f"sample size: {sample_size}")
-
-            power = 0
-            type_1_err = 0
-
-            for _ in range(num_reps):
-
-                x = np.random.choice(sample["p"]["witness"], size=sample_size, replace=True)
-                x2 = np.random.choice(sample["p"]["witness"], size=sample_size, replace=True)
-                y = np.random.choice(sample["q"]["witness"], size=sample_size, replace=True)
-
-                res_power = permutation_test((x, y), stat_C2ST)
-                res_type_1_err = permutation_test((x, x2), stat_C2ST)
-
-                power += res_power.pvalue < 0.05
-                type_1_err += res_type_1_err.pvalue < 0.05
-
-            powers.append(power / num_reps)
-            type_1_errs.append(type_1_err / num_reps)
-
-            print(powers)
-            print(type_1_errs)
-
-        ############################################################################################
         # Interpretability:
         # Witness function histogram + subgroup / witness correspondence
 
@@ -170,25 +136,6 @@ class DomainClassifier:
 
         out_hists = os.path.join(self.log_dir, "witness_hists.pdf")
         fig.savefig(out_hists)
-
-        fpr, tpr, _ = roc_curve(df["y"], df["y_sm"])
-        roc_auc = auc(fpr, tpr)
-        ii = np.where(tpr > 0.95)[0][0]
-
-        results = {
-            "accuracy": np.sum(df["y"] == df["y_bin"]) / df.shape[0],
-            "roc_auc": roc_auc,
-            "fpr95": fpr[ii],
-            "power_c2st_l": powers,
-            "type_1_err__c2st_l": type_1_errs,
-            "sample_size": sample_sizes,
-        }
-
-        print(results)
-
-        res_file = os.path.join(self.log_dir, "test_results.csv")
-        res_df = pd.DataFrame.from_dict(results, orient="index")
-        res_df.to_csv(res_file)
 
         # TODO: just do a forward pass of a few batches or so, and sort them by witness, and show them?
         # Plot some example images with low and high witness function values
@@ -439,128 +386,7 @@ class DomainClassifier:
         res_df.to_csv(res_file)
 
 
-def load_or_train_task_classifier():
-    pass
-
-
 if __name__ == "__main__":
-
-    parser = argparse.ArgumentParser(
-        description="Run single experiment", formatter_class=argparse.ArgumentDefaultsHelpFormatter
-    )
-    parser.add_argument(
-        "--exp_dir",
-        action="store",
-        type=str,
-        help="experiment folder",
-        default="./experiments/tmi"
-        # default='./experiments/hypothesis-tests/mnist'
-    )
-    parser.add_argument(
-        "--artifacts_dir",
-        action="store",
-        type=str,
-        help="artifacts folder",
-        default="./experiments/tmi/artifacts",
-    )
-    parser.add_argument(
-        "--config_file",
-        action="store",
-        type=str,
-        help="config file",
-        # default="./config/eyepacs_quality_ood.yaml"
-        default="./config/mnist_subgroups.yaml"
-        # default='./experiments/hypothesis-tests/mnist/5c3010e7e9f5de06c7d55ecbed422251/config.yaml'
-    )
-    parser.add_argument(
-        "--seed",
-        action="store",
-        default=1000,
-        type=int,
-        help="random seed",
-    )
-    parser.add_argument(
-        "--eval_splits",
-        action="store",
-        default=["test"],
-        nargs="+",
-        help="List of splits to be evaluated, e.g. --eval_splits validation test",
-    )
-
-    args = parser.parse_args()
-
-    params = load_config(args.config_file)
-
-    ###############################################################################################################################
-    # Preparation
-    ###############################################################################################################################
-
-    dataloader = dataset_fn(params_dict=params["dataset"])
-
-    ###############################################################################################################################
-    # Run training: separate exp hashes for all three methods (matched with dataset config)
-    ###############################################################################################################################
-
-    # 1. MMD: train kernel
-
-    artifacts_dir = os.path.join(args.exp_dir, "mmdd")
-
-    mmd_config = {k: params[k] for k in ["dataset", "trainer"]}
-    hash_string = hash_dict(mmd_config)
-    save_config(mmd_config, artifacts_dir)
-
-    log_dir = os.path.join(artifacts_dir, hash_string)
-
-    # FIXME mmd config should all be in one section (merge "trainer" and relevant parts of "model")
-    model = model_fn(seed=args.seed, params=params["model"])
-    trainer = trainer_object_fn(
-        model=model, dataloaders=dataloader, seed=args.seed, log_dir=log_dir, **params["trainer"]
-    )
-
-    trainer.train()
-
-    # 2. C2ST: train domain classifier
-
-    artifacts_dir = os.path.join(args.exp_dir, "domain_classif")
-
-    # extract hash from config
-    domain_classifier_config = {k: params[k] for k in ["dataset", "domain_classifier"]}
-    hash_string = hash_dict(domain_classifier_config)
-    save_config(domain_classifier_config, artifacts_dir)
-
-    log_dir = os.path.join(artifacts_dir, hash_string)
-
-    domain_classifier = DomainClassifier(
-        dataloader,
-        log_dir,
-        model_params=params["domain_classifier"]["model"],
-        train_params=params["domain_classifier"]["train"],
-        eval_params=params["domain_classifier"]["eval"],
-    )
-
-    domain_classifier.train()
-
-    # 3. MUKS: train task classifier
-
-    artifacts_dir = os.path.join(args.exp_dir, "task_classif")
-
-    # TODO: hash could be done only on ['ds']['p'] and ['ds']['q]
-    task_classifier_config = {k: params[k] for k in ["dataset", "task_classifier"]}
-    hash_string = hash_dict(task_classifier_config)
-    save_config(task_classifier_config, args.artifacts_dir)
-
-    log_dir = os.path.join(artifacts_dir, hash_string)
-
-    from core.model import get_classification_model
-
-    task_classifier = get_classification_model(
-        task_classifier_config["task_classifier"]["model"], log_dir=log_dir, download=False
-    )
-
-    task_classifier.train_model(dataloader_train=dataloader["train"]["p"])
-    acc = task_classifier.eval_model(dataloader=dataloader["validation"]["p"])
-
-    print(f"task acc: {acc}")
 
     ###############################################################################################################################
     # Eval MMD-D and MUKS on various sample sizes
@@ -584,36 +410,4 @@ if __name__ == "__main__":
 
     # 2. C2ST
 
-    # EVAL:
-    # FIXME the eval code below is eyepacs specific. Need this to work for MNIST and camelyon too
-    # domain_classifier.eval(test_loader=dataloader["test"])
-
-    # domain_classifier.eval_general(test_loader=dataloader["test"])
-
-    # 3. MUKS
-
-    eval_dir = os.path.join(args.exp_dir, "eval")
-
-    hash_string = hash_dict(params)
-    save_config(params, eval_dir)
-
-    log_dir = os.path.join(eval_dir, hash_string)
-
-    models = {"mmdd": trainer.model, "muks": task_classifier, "c2st": domain_classifier}
-
-    for split in args.eval_splits:
-        eval(
-            eval_dir,
-            hash_string,
-            params,
-            args.seed,
-            split,
-            models,
-            sample_sizes=[10, 30, 50, 100, 200, 500],
-            # sample_sizes=[5, 10, 30],
-            num_reps=100,
-            num_permutations=1000,
-            force_run=True,
-        )
-
-    print("done")
+    pass

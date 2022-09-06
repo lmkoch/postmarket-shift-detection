@@ -177,7 +177,7 @@ def get_dataloader(
         num_samples = batch_size * 100
         replacement = True
     else:
-        num_samples = len(dataset)
+        num_samples = None
         replacement = False
 
     if use_sampling:

@@ -1,16 +1,10 @@
 import os
 
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import seaborn as sns
-from utils.helpers import set_rcParams
 
-import core.muks
 from core.dataset import dataset_fn
-from core.mmdd import trainer_object_fn
-from core.model import get_classification_model, model_fn
-from core.muks import c2st, mmdd, muks
+from core.model import MaxKernel
 
 
 def stderr_proportion(p, n):
@@ -19,14 +13,9 @@ def stderr_proportion(p, n):
 
 def eval(
     trainer,
-    data_params,
-    exp_dir,
-    exp_name,
     params,
-    split,
+    split="test",  # FIXME need additional logic with trainer.validate
     sample_sizes=[10, 30, 50, 100, 500],
-    num_reps=100,
-    num_permutations=1000,
 ):
     """Analysis of test power vs sample size for both MMD-D and MUKS
 
@@ -40,33 +29,46 @@ def eval(
         num_permutations (int, optional): for MMD-D permutation test. Defaults to 1000.
     """
 
-    log_dir = os.path.join(exp_dir, exp_name)
+    log_dir = trainer.logger.log_dir
     out_csv = os.path.join(log_dir, f"{split}_consistency_analysis.csv")
 
     df = pd.DataFrame(columns=["sample_size", "power", "type_1err", "method"])
+
+    from core.model import DataModule
+
+    if isinstance(trainer.model, MaxKernel):
+        mmdd = True
+        boot_strap_test = True
+    else:
+        mmdd = False
+        boot_strap_test = False
 
     for batch_size in sample_sizes:
 
         params["dataset"]["dl"]["batch_size"] = batch_size
 
-        # FIXME boot_strapping should be enabled for MMD only
-        boot_strap_test = True
-
-        # FIXME: for MMD, should have another dataloader with two ['p']s for type 1 err
-
         dataloader = dataset_fn(params_dict=params["dataset"], boot_strap_test=boot_strap_test)
 
-        # TODO implement test_step: MMD
-        # TODO for MMD: dataloaders with
-        #      - batch_size = sample_size
-        #      - num_samples = batch_size * num_repetitions
-        #      - sampling with replacement (already implemented for camelyon, careful not to destroy)
-        #      - additional dataloader for type I error
-        res = trainer.test(dataloaders=dataloader[split])[0]
-
-        # TODO test returns power only forMMD -> adapt interface. Hacky, but what can you do
+        res = trainer.test(datamodule=DataModule(dataloader))[0]
         reject_rate = res["test/power"]
-        type_1_err = res["test/type_1err"]
+
+        if not mmdd:
+            type_1_err = res["test/type_1err"]
+
+        else:
+            # MMD-D lightning model cannot natively calculate type 1 error - need to
+            # calculate power on same distribution
+            import copy
+
+            type_1_err_params = copy.deepcopy(params)
+            type_1_err_params["dataset"]["ds"]["q"] = type_1_err_params["dataset"]["ds"]["p"]
+
+            dataloader = dataset_fn(
+                params_dict=type_1_err_params["dataset"], boot_strap_test=boot_strap_test
+            )
+            res = trainer.test(datamodule=DataModule(dataloader))[0]
+
+            type_1_err = res["test/power"]
 
         res = {
             "sample_size": batch_size,
@@ -78,7 +80,6 @@ def eval(
 
         print(res)
 
-    df["exp_hash"] = exp_name
     df["power_stderr"] = stderr_proportion(df["power"], df["sample_size"].astype(float))
     df["type_1err_stderr"] = stderr_proportion(df["type_1err"], df["sample_size"].astype(float))
 

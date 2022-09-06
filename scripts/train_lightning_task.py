@@ -130,10 +130,11 @@ def main(args, params):
     trainer = train_model(**specs, data_frac=args.data_frac)
 
     # Eval
+    from core.eval import eval
 
-    #
+    eval(trainer, params, sample_sizes=[10, 30])
 
-    res = trainer.test(datamodule=DataModule(dataloader))
+    # TODO witness stuff for C2ST
 
     # res [{'val/loss_epoch': 0.7246412634849548, 'val/acc_epoch': 0.5092648267745972, 'test/power': 0.42, 'test/type_1err': 0.08}]
 
@@ -190,7 +191,7 @@ if __name__ == "__main__":
         dest="test_method",
         action="store",
         help="Test Method (mmdd, c2st, muks)",
-        default="c2st",
+        default="mmdd",
     )
     parser.add_argument(
         "--data_frac",

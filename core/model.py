@@ -213,6 +213,31 @@ class MaxKernel(BaseClassifier):
 
     def validation_step(self, batch, batch_idx) -> None:
 
+        outputs = self._shared_test_step(batch, batch_idx, num_permutations=100)
+
+        loss = outputs["loss"]
+
+        x_p, *_ = batch["p"]
+        x_q, *_ = batch["q"]
+
+        self.log("val/loss", loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+
+        img_p = torchvision.utils.make_grid(x_p[:8], normalize=True)
+        img_q = torchvision.utils.make_grid(x_q[:8], normalize=True)
+
+        self.logger.experiment.add_image("val/img_p", img_p, self.trainer.global_step)
+        self.logger.experiment.add_image("val/img_q", img_q, self.trainer.global_step)
+
+        return outputs
+
+    def test_step(self, batch, batch_idx) -> None:
+
+        outputs = self._shared_test_step(batch, batch_idx, num_permutations=1000)
+
+        return outputs
+
+    def _shared_test_step(self, batch, batch_idx, num_permutations=100) -> None:
+
         x_p, *_ = batch["p"]
         x_q, *_ = batch["q"]
 
@@ -223,12 +248,7 @@ class MaxKernel(BaseClassifier):
         sigma = self.sigma_sq
         sigma0_u = self.sigma0_sq
 
-        loss = self.loss_fn(feat_p, feat_q, x_p, x_q, sigma, sigma0_u, ep)
-
-        self.log("val/loss", loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
-
         alpha = 0.05
-        num_permutations = 100
 
         h_u = mmd_test(
             x_p,
@@ -241,20 +261,23 @@ class MaxKernel(BaseClassifier):
             alpha=alpha,
         )
 
-        img_p = torchvision.utils.make_grid(x_p[:8], normalize=True)
-        img_q = torchvision.utils.make_grid(x_q[:8], normalize=True)
-
-        self.logger.experiment.add_image("val/img_p", img_p, self.trainer.global_step)
-        self.logger.experiment.add_image("val/img_q", img_q, self.trainer.global_step)
+        loss = self.loss_fn(feat_p, feat_q, x_p, x_q, sigma, sigma0_u, ep)
 
         return {"loss": loss, "hypothesis_rejected": h_u}
 
     def validation_epoch_end(self, outputs):
 
+        power = self._shared_epoch_end(outputs)
+        self.log("val/power", power, on_epoch=True, prog_bar=True, logger=True)
+
+    def test_epoch_end(self, outputs):
+
+        power = self._shared_epoch_end(outputs)
+        self.log("test/power", power, on_epoch=True, prog_bar=True, logger=True)
+
+    def _shared_epoch_end(self, outputs):
         loss = torch.stack([x["loss"] for x in outputs])
         hypothesis_rejected = np.stack([x["hypothesis_rejected"] for x in outputs])
-
-        # TODO figure out how to calculate power for specific sample size..
 
         loss = torch.mean(loss)
 
@@ -263,7 +286,7 @@ class MaxKernel(BaseClassifier):
         else:
             power = np.mean(hypothesis_rejected)
 
-        self.log("val/power", power, on_epoch=True, prog_bar=True, logger=True)
+        return power
 
     @property
     def ep(self):
@@ -346,9 +369,6 @@ class TaskClassifier(BaseClassifier):
         batch_size = outputs[0]["y_p_sm"].shape[0]
         # TODO: check if correct: draw multi-D sample (multiple classes)
 
-        # TODO: test loop with
-        # - various sample sizes and
-        # - num_reps ~= 100
         # - enough permutations
 
         power, type_1_err = repeated_test(
@@ -561,20 +581,24 @@ class DomainClassifier(BaseClassifier):
         return outputs
 
     def _shared_epoch_end(self, outputs):
+        def permutation_test_wrapper(x, y):
+            res = permutation_test((x, y), stat_C2ST)
+            return res.pvalue
+
+        batch_size = outputs[0]["y"].shape[0]
 
         y = torch.cat([x["y"] for x in outputs])
         y_logits = torch.cat([x["y_logits"] for x in outputs])
         y_pred = torch.argmax(y_logits, dim=1)
         y_sm = torch.softmax(y_logits, dim=1)
 
-        sample_p = y_sm[y == 1, 1].detach().cpu().numpy()
-        sample_q = y_sm[y == 0, 1].detach().cpu().numpy()
+        # witness is difference in logits for soft C2ST
+        witness = (y_logits[:, 0] - y_logits[:, 1]).detach().cpu().numpy()
 
-        def permutation_test_wrapper(x, y):
-            res = permutation_test((x, y), stat_C2ST)
-            return res.pvalue
+        sample_p = witness[y == 1]
+        sample_q = witness[y == 0]
 
-        batch_size = outputs[0]["y"].shape[0]
+        # TODO report both binary and logits result
 
         power, type_1_err = repeated_test(
             sample_p,
