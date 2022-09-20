@@ -14,8 +14,6 @@ from torchvision import datasets
 from torchvision.datasets import VisionDataset
 from utils.helpers import balanced_weights
 from utils.transforms import data_transforms
-from wilds.datasets.camelyon17_dataset import Camelyon17Dataset
-from wilds.datasets.wilds_dataset import WILDSDataset
 
 
 def dataset_fn(params_dict, boot_strap_test=False) -> Dict:
@@ -121,18 +119,24 @@ def get_dataset(
 
     elif dataset_type == "camelyon":
 
-        full_dataset = LisaCamelyon17Dataset(
-            root_dir=data_root, split_scheme="vanilla", download=True
-        )
+        from core.data_camelyon17 import Camelyon17Dataset
 
-        dataset["train"] = full_dataset.get_subset("train", transform=train_transform)
-        dataset["val"] = full_dataset.get_subset("val", transform=test_transform)
-        dataset["test"] = full_dataset.get_subset("test", transform=test_transform)
+        dataset = {}
+
+        for split in ["train", "val", "test"]:
+
+            transform = train_transform if split == "train" else test_transform
+
+            dataset[split] = Camelyon17Dataset(
+                root_dir=data_root,
+                split_scheme="vanilla",
+                download=False,  # TODO switch to True when done
+                transform=transform,
+                split=split,
+                subset_params=subset_params,
+            )
 
     elif dataset_type == "eyepacs":
-
-        # TODO fix data_root relative to both image_dir and csv
-        # data_root = '/home/lkoch/mnt/cin_root/data/eyepacs/'
 
         for split in ["train", "val", "test"]:
 
@@ -291,93 +295,6 @@ class MNIST(datasets.MNIST):
         m = torch.tensor([target])
 
         return img, target, m
-
-
-class LisaCamelyon17Dataset(Camelyon17Dataset):
-    def get_subset(self, split, frac=1.0, transform=None):
-        """
-        Args:
-            - split (str): Split identifier, e.g., 'train', 'val', 'test'.
-                           Must be in self.split_dict.
-            - frac (float): What fraction of the split to randomly sample.
-                            Used for fast development on a small dataset.
-            - transform (function): Any data transformations to be applied to the input x.
-        Output:
-            - subset (WILDSSubset): A (potentially subsampled) subset of the WILDSDataset.
-        """
-        if split not in self.split_dict:
-            raise ValueError(f"Split {split} not found in dataset's split_dict.")
-        split_mask = self.split_array == self.split_dict[split]
-        split_idx = np.where(split_mask)[0]
-        if frac < 1.0:
-            num_to_retain = int(np.round(float(len(split_idx)) * frac))
-            split_idx = np.sort(np.random.permutation(split_idx)[:num_to_retain])
-        subset = LisaWILDSSubset(self, split_idx, transform)
-        return subset
-
-
-class LisaWILDSSubset(WILDSDataset):
-    def __init__(self, dataset, indices, transform, do_transform_y=False):
-        """
-        This acts like `torch.utils.data.Subset`, but on `WILDSDatasets`.
-        We pass in `transform` (which is used for data augmentation) explicitly
-        because it can potentially vary on the training vs. test subsets.
-
-        `do_transform_y` (bool): When this is false (the default),
-                                 `self.transform ` acts only on  `x`.
-                                 Set this to true if `self.transform` should
-                                 operate on `(x,y)` instead of just `x`.
-        """
-        self.dataset = dataset
-        self.indices = indices
-        inherited_attrs = [
-            "_dataset_name",
-            "_data_dir",
-            "_collate",
-            "_split_scheme",
-            "_split_dict",
-            "_split_names",
-            "_y_size",
-            "_n_classes",
-            "_metadata_fields",
-            "_metadata_map",
-        ]
-        for attr_name in inherited_attrs:
-            if hasattr(dataset, attr_name):
-                setattr(self, attr_name, getattr(dataset, attr_name))
-        self.transform = transform
-        self.do_transform_y = do_transform_y
-
-    def __getitem__(self, idx):
-        x, y, metadata = self.dataset[self.indices[idx]]
-        if self.transform is not None:
-            if self.do_transform_y:
-                x, y = self.transform(x, y)
-            else:
-                x = self.transform(x)
-        return x, y, metadata
-
-    def __len__(self):
-        return len(self.indices)
-
-    @property
-    def split_array(self):
-        return self.dataset._split_array[self.indices]
-
-    @property
-    def y_array(self):
-        return self.dataset._y_array[self.indices]
-
-    @property
-    def metadata_array(self):
-        return self.dataset.metadata_array[self.indices]
-
-    def eval(self, y_pred, y_true, metadata):
-        return self.dataset.eval(y_pred, y_true, metadata)
-
-    @property
-    def hospitals(self):
-        return self.metadata_array[:, 0]
 
 
 class EyepacsDataset(VisionDataset):

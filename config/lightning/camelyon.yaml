@@ -6,20 +6,26 @@ dataset:
             img_size: 96
             mean: [0.485, 0.456, 0.406]
             std: [0.229, 0.224, 0.225]
-        data_augmentation: # available operations are list in 'data_augmentation_args' below
+        data_augmentation:  # available operations are list in 'data_augmentation_args' below
             - random_crop
             - horizontal_flip
             - vertical_flip
             - color_distortion
             - rotation
-        p: # TODO / TODO: proper subsets
+        p:
             dataset: 'camelyon'
             # data_root: '/gpfs01/berens/user/lkoch/data'
             data_root: './data/download_complete'
-        q: # TODO / TODO: proper subsets
+            # data_root: '~/data'
+            subset_params:
+                center: [0, 1, 2, 3, 4]
+        q:
             dataset: 'camelyon'
             # data_root: '/gpfs01/berens/user/lkoch/data'
             data_root: './data/download_complete'
+            # data_root: '~/data'
+            subset_params:
+                center: [0]
         data_augmentation_args:
           horizontal_flip:
             prob: 0.5
@@ -52,11 +58,11 @@ dataset:
     dl:
         batch_size: 16
         p:
-            use_sampling: True
+            use_sampling: False
             sampling_by_variable: 'hospitals'
             sampling_weights: [1, 1, 1, 1, 1]
         q:
-            use_sampling: True
+            use_sampling: False
             sampling_by_variable: 'hospitals'
             sampling_weights: [0, 0, 1, 0, 0]
         num_workers: 4
@@ -82,6 +88,7 @@ domain_classifier:
         arch: 'resnet50'
         in_channels: 3                                                  # Adapt depending on dataset
         n_outputs: 2
+        loss_type: "cross_entropy" # mean_squared_error
         optim_config:
             optimizer: ADAM # SGD / ADAM
             learning_rate: 1.e-6 # initial learning rate
@@ -94,6 +101,7 @@ domain_classifier:
     eval:
         n_permute: 100
         alpha: 0.05
+        use_tensorboard: True
         n_test_reps: 10
         eval_interval_globalstep: 300
         num_eval_batches: 30
@@ -103,6 +111,7 @@ task_classifier:
         arch: 'resnet50'
         in_channels: 3    
         n_outputs: 2 
+        loss_type: "cross_entropy" # mean_squared_error
         optim_config:
             optimizer: ADAM # SGD / ADAM
             learning_rate: 1.e-6 # initial learning rate

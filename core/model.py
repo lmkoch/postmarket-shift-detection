@@ -553,6 +553,9 @@ class EyepacsClassifier(TaskClassifier):
         )
 
 
+# TODO debug - witness hists should have correct colors depending on number of chnnels
+
+
 class DomainClassifier(BaseClassifier):
     def prepare_batch_data(self, x_p: torch.Tensor, x_q: torch.Tensor):
 
@@ -574,23 +577,39 @@ class DomainClassifier(BaseClassifier):
 
         outputs = self._shared_test_step(batch, batch_idx)
 
-        x_p, *_ = batch["p"]
-        x_q, *_ = batch["q"]
+        self.val_x_p, *_ = batch["p"]
+        self.val_x_q, *_ = batch["q"]
 
-        img_p = torchvision.utils.make_grid(x_p[:8], normalize=True)
-        img_q = torchvision.utils.make_grid(x_q[:8], normalize=True)
+        # img_p = torchvision.utils.make_grid(x_p[:8], normalize=True)
+        # img_q = torchvision.utils.make_grid(x_q[:8], normalize=True)
 
-        self.logger.experiment.add_image("val/img_p", img_p, self.trainer.global_step)
-        self.logger.experiment.add_image("val/img_q", img_q, self.trainer.global_step)
+        # self.logger.experiment.add_image("val/img_p", img_p, self.trainer.global_step)
+        # self.logger.experiment.add_image("val/img_q", img_q, self.trainer.global_step)
 
         return outputs
 
     def validation_epoch_end(self, outputs):
 
-        power, type_1_err = self._shared_epoch_end(outputs)
+        power, type_1_err, witness_fig = self._shared_epoch_end(outputs)
 
         self.log("val/power", power, on_epoch=True, prog_bar=True, logger=True)
         self.log("val/type_1err", type_1_err, on_epoch=True, prog_bar=True, logger=True)
+
+        # TODO change in other classes as well: plot images only once per epoch!
+        img_p = torchvision.utils.make_grid(self.val_x_p[:8], normalize=True)
+        img_q = torchvision.utils.make_grid(self.val_x_q[:8], normalize=True)
+
+        self.logger.experiment.add_image("val/img_p", img_p, self.trainer.global_step)
+        self.logger.experiment.add_image("val/img_q", img_q, self.trainer.global_step)
+
+        self.logger.experiment.add_figure(
+            "val/witness_examples", witness_fig, self.trainer.global_step
+        )
+
+        log_dir = self.logger.log_dir
+        out_fig = os.path.join(log_dir, f"val_witness_examples.pdf")
+
+        witness_fig.savefig(out_fig)
 
     def test_step(self, batch, batch_idx) -> None:
 
@@ -599,10 +618,19 @@ class DomainClassifier(BaseClassifier):
 
     def test_epoch_end(self, outputs):
 
-        power, type_1_err = self._shared_epoch_end(outputs)
+        power, type_1_err, witness_fig = self._shared_epoch_end(outputs)
 
         self.log("test/power", power, on_epoch=True, prog_bar=True, logger=True)
         self.log("test/type_1err", type_1_err, on_epoch=True, prog_bar=True, logger=True)
+
+        self.logger.experiment.add_figure(
+            "test/witness_examples", witness_fig, self.trainer.global_step
+        )
+
+        log_dir = self.logger.log_dir
+        out_fig = os.path.join(log_dir, f"test_witness_examples.pdf")
+
+        witness_fig.savefig(out_fig)
 
     def _shared_test_step(self, batch, batch_idx) -> None:
 
@@ -659,6 +687,10 @@ class DomainClassifier(BaseClassifier):
 
         indices = np.concatenate((indices, indices + batch_size // 2))
 
+        # normalise
+        self.val_x -= self.val_x.min()
+        self.val_x /= self.val_x.max()
+
         for idx in indices:
 
             img = np.squeeze(self.val_x[idx].permute(1, 2, 0).detach().cpu().numpy())
@@ -673,14 +705,7 @@ class DomainClassifier(BaseClassifier):
 
             figimg = ax.figure.figimage(img, *coord_img)
 
-        self.logger.experiment.add_figure("val/witness_examples", fig, self.trainer.global_step)
-
-        log_dir = self.logger.log_dir
-        out_fig = os.path.join(log_dir, f"witness_examples.pdf")
-
-        fig.savefig(out_fig)
-
-        return power, type_1_err
+        return power, type_1_err, fig
 
 
 # Define the deep network for MMD-D
