@@ -1,16 +1,21 @@
 import logging
+import os
 from argparse import ArgumentError
 from typing import Dict
 
+import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 import pytorch_lightning as pl
+import seaborn as sns
 import torch
 import torch.nn as nn
 import torchmetrics
 import torchvision
 from pytorch_lightning.trainer.supporters import CombinedLoader
 from scipy.stats import permutation_test
-from utils.helpers import stat_C2ST
+from sklearn.metrics import accuracy_score, balanced_accuracy_score, confusion_matrix
+from utils.helpers import quadratic_weighted_kappa, stat_C2ST
 
 from core.mmdd import assemble_loss, mmd_test
 from core.muks import mass_ks_test
@@ -329,7 +334,7 @@ class TaskClassifier(BaseClassifier):
 
     def validation_step(self, batch, batch_idx):
 
-        outputs = self._shared_test_step(self, batch, batch_idx)
+        outputs = self._shared_test_step(batch, batch_idx)
 
         x_p, *_ = batch["p"]
         x_q, *_ = batch["q"]
@@ -347,42 +352,32 @@ class TaskClassifier(BaseClassifier):
         outputs = self._shared_test_step(batch, batch_idx)
         return outputs
 
+    # def training_epoch_end(self, outputs):
+    #     self._shared_epoch_end(outputs, "train")
+
     def validation_epoch_end(self, outputs):
-
-        power, type_1_err = self._shared_epoch_end(outputs)
-
-        self.log("val/power", power, on_epoch=True, prog_bar=True, logger=True)
-        self.log("val/type_1err", type_1_err, on_epoch=True, prog_bar=True, logger=True)
+        self._shared_epoch_end(outputs, "val")
 
     def test_epoch_end(self, outputs):
+        self._shared_epoch_end(outputs, "test")
 
-        power, type_1_err = self._shared_epoch_end(outputs)
-
-        self.log("test/power", power, on_epoch=True, prog_bar=True, logger=True)
-        self.log("test/type_1err", type_1_err, on_epoch=True, prog_bar=True, logger=True)
-
-    def _shared_epoch_end(self, outputs):
+    def _shared_epoch_end(self, outputs, split):
 
         y_p_sm = torch.cat([x["y_p_sm"] for x in outputs]).detach().cpu().numpy()
         y_q_sm = torch.cat([x["y_q_sm"] for x in outputs]).detach().cpu().numpy()
 
         batch_size = outputs[0]["y_p_sm"].shape[0]
-        # TODO: check if correct: draw multi-D sample (multiple classes)
-
-        # - enough permutations
 
         power, type_1_err = repeated_test(
             y_p_sm, y_q_sm, mass_ks_test, num_reps=100, alpha=0.05, sample_size=batch_size
         )
 
+        self.log(f"{split}/power", power, on_epoch=True, prog_bar=True, logger=True)
+        self.log(f"{split}/type_1err", type_1_err, on_epoch=True, prog_bar=True, logger=True)
+
+        self._shared_subgroup_analysis(outputs, split)
+
         return power, type_1_err
-
-    def test_epoch_end(self, outputs):
-
-        power, type_1_err = self._shared_epoch_end(outputs)
-
-        self.log("test/power", power, on_epoch=True, prog_bar=True, logger=True)
-        self.log("test/type_1err", type_1_err, on_epoch=True, prog_bar=True, logger=True)
 
     def _shared_test_step(self, batch, batch_idx):
 
@@ -404,7 +399,71 @@ class TaskClassifier(BaseClassifier):
         outputs["y_p_sm"] = y_p_sm
         outputs["y_q_sm"] = y_q_sm
 
+        m_p = batch["p"][2]
+
+        outputs["m_p"] = m_p
+
         return outputs
+
+    def _shared_subgroup_analysis(self, outputs, split):
+
+        y = torch.cat([x["y"] for x in outputs]).detach().cpu().numpy()
+        y_pred = torch.cat([x["y_pred"] for x in outputs]).detach().cpu().numpy()
+        metadata = torch.cat([x["m_p"] for x in outputs]).detach().cpu().numpy()
+
+        df = pd.DataFrame()
+        metrics_df = pd.DataFrame()
+
+        cols = ["y", "y_pred"] + [val for val in range(metadata.shape[1])]
+
+        matrix = np.concatenate((y[:, np.newaxis], y_pred[:, np.newaxis], metadata), axis=1)
+        df = pd.DataFrame(data=matrix, columns=cols)
+
+        for col_idx in range(metadata.shape[1]):
+
+            column = metadata[:, col_idx]
+
+            for group in np.unique(column):
+
+                subset = df[df[col_idx] == group]
+
+                conf_mat = confusion_matrix(subset["y"], subset["y_pred"])
+
+                group_specs = {"criterion": col_idx, "group": group, "n": len(subset)}
+
+                results = {
+                    "acc": accuracy_score(subset["y"], subset["y_pred"]),
+                    "bal_acc": balanced_accuracy_score(subset["y"], subset["y_pred"]),
+                    "binary_acc_onset_1": accuracy_score(
+                        subset["y"] >= 1.0, subset["y_pred"] >= 1.0
+                    ),
+                    "binary_acc_onset_2": accuracy_score(
+                        subset["y"] >= 2.0, subset["y_pred"] >= 2.0
+                    ),
+                    "quadratic_kappa": quadratic_weighted_kappa(conf_mat),
+                }
+
+                print("========================================")
+                print(f"Group: {col_idx}={group} (n={len(subset)})")
+                print(f"Metrics:")
+                print(results)
+                print("Confusion Matrix:")
+                print(conf_mat)
+                # print('quadratic kappa: {}'.format(estimator.get_kappa(6)))
+                print("========================================")
+
+                metrics_df = metrics_df.append(group_specs | results, ignore_index=True)
+
+                #
+
+        # print(metrics_df)
+
+        log_dir = self.logger.log_dir
+        out_csv = os.path.join(
+            log_dir, f"{split}_subgroup_performance_epoch:{self.current_epoch}.csv"
+        )
+
+        metrics_df.to_csv(out_csv)
 
 
 class EyepacsClassifier(TaskClassifier):
@@ -414,13 +473,6 @@ class EyepacsClassifier(TaskClassifier):
 
         # TODO (for train and val end epoch): acc, bal_acc, kappa
         # TODO: for eyepacs only: binary onset acc
-
-        from sklearn.metrics import (
-            accuracy_score,
-            balanced_accuracy_score,
-            confusion_matrix,
-        )
-        from utils.helpers import quadratic_weighted_kappa
 
         y = torch.cat([x["y"] for x in outputs]).detach().cpu().numpy()
         y_pred = torch.cat([x["y_pred"] for x in outputs]).detach().cpu().numpy()
@@ -462,16 +514,6 @@ class EyepacsClassifier(TaskClassifier):
     def validation_epoch_end(self, outputs):
 
         super().validation_epoch_end(outputs)
-
-        # TODO (for train and val end epoch): acc, bal_acc, kappa
-        # TODO: for eyepacs only: binary onset acc
-
-        from sklearn.metrics import (
-            accuracy_score,
-            balanced_accuracy_score,
-            confusion_matrix,
-        )
-        from utils.helpers import quadratic_weighted_kappa
 
         y = torch.cat([x["y"] for x in outputs]).detach().cpu().numpy()
         y_pred = torch.cat([x["y_pred"] for x in outputs]).detach().cpu().numpy()
@@ -570,7 +612,7 @@ class DomainClassifier(BaseClassifier):
         y_logits = self.model(x)
 
         # Remember validation images for visualisation later
-        self.val_y = y
+        self.val_x = x
         self.y_logits = y_logits
 
         outputs = super().validation_step(prepped_batch, batch_idx)
@@ -587,7 +629,7 @@ class DomainClassifier(BaseClassifier):
 
         batch_size = outputs[0]["y"].shape[0]
 
-        y = torch.cat([x["y"] for x in outputs])
+        y = torch.cat([x["y"] for x in outputs]).detach().cpu().numpy()
         y_logits = torch.cat([x["y_logits"] for x in outputs])
         y_pred = torch.argmax(y_logits, dim=1)
         y_sm = torch.softmax(y_logits, dim=1)
@@ -608,6 +650,35 @@ class DomainClassifier(BaseClassifier):
             alpha=0.05,
             sample_size=batch_size,
         )
+
+        df = pd.DataFrame({"witness": witness, "y": y})
+        fig, ax = plt.subplots()
+        sns.stripplot(data=df, x="witness", y="y", orient="h")
+
+        indices = np.random.choice(batch_size // 2, 4)
+
+        indices = np.concatenate((indices, indices + batch_size // 2))
+
+        for idx in indices:
+
+            img = np.squeeze(self.val_x[idx].permute(1, 2, 0).detach().cpu().numpy())
+            example_witness = (
+                (self.y_logits[:, 0] - self.y_logits[:, 1]).detach().cpu().numpy()[idx]
+            )
+            example_y = idx < batch_size / 2
+
+            example_coord = [example_witness, example_y]
+
+            coord_img = ax.transData.transform(example_coord)
+
+            figimg = ax.figure.figimage(img, *coord_img)
+
+        self.logger.experiment.add_figure("val/witness_examples", fig, self.trainer.global_step)
+
+        log_dir = self.logger.log_dir
+        out_fig = os.path.join(log_dir, f"witness_examples.pdf")
+
+        fig.savefig(out_fig)
 
         return power, type_1_err
 

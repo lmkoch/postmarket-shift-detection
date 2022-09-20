@@ -57,7 +57,7 @@ def main(args, params):
             limit_val_batches=data_frac,  # TODO increase to 1.0 after debugging
             logger=logger,
             callbacks=checkpoint_callbacks,
-            gpus=0,
+            gpus=1,
         )
 
         trainer.fit(model, datamodule=data)
@@ -132,7 +132,7 @@ def main(args, params):
     # Eval
     from core.eval import eval
 
-    eval(trainer, params, sample_sizes=[10, 30])
+    eval(trainer, params, sample_sizes=[10, 30, 50, 100, 200, 500])
 
     # TODO witness stuff for C2ST
 
@@ -191,7 +191,7 @@ if __name__ == "__main__":
         dest="test_method",
         action="store",
         help="Test Method (mmdd, c2st, muks)",
-        default="mmdd",
+        default="muks",
     )
     parser.add_argument(
         "--data_frac",

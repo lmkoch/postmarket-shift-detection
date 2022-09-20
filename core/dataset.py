@@ -1,6 +1,6 @@
 import os
 from argparse import ArgumentError
-from typing import Dict
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -103,14 +103,10 @@ def get_dataset(
             [transforms.ToTensor(), random_erase, transforms.ToPILImage(), test_transform]
         )
 
-        mnist_train = datasets.MNIST(
-            data_root, transform=train_transform, download=True, train=True
-        )
-        mnist_val = datasets.MNIST(data_root, transform=test_transform, download=True, train=True)
+        mnist_train = MNIST(data_root, transform=train_transform, download=True, train=True)
+        mnist_val = MNIST(data_root, transform=test_transform, download=True, train=True)
 
-        dataset["test"] = datasets.MNIST(
-            data_root, transform=test_transform, download=True, train=False
-        )
+        dataset["test"] = MNIST(data_root, transform=test_transform, download=True, train=False)
 
         train_indices, val_indices, _, _ = train_test_split(
             range(len(mnist_train)),
@@ -227,6 +223,76 @@ class SubgroupSampler(torch.utils.data.sampler.Sampler):
         return len(self.indices)
 
 
+class MNIST(datasets.MNIST):
+    # def __init__(
+    #     self,
+    #     root: str,
+    #     train: bool = True,
+    #     transform: Optional[Callable] = None,
+    #     target_transform: Optional[Callable] = None,
+    #     download: bool = False,
+    # ) -> None:
+
+    #     super(MNIST, self).__init__(root, train, transform, target_transform, download)
+
+    #     # TODO: create corruption
+    #     scale_erase = subset_params["scale_erase"]
+    #     p_erase = subset_params["p_erase"]
+
+    #     random_erase = transforms.RandomErasing(
+    #         p=p_erase, scale=(scale_erase, scale_erase), ratio=(1, 1)
+    #     )
+
+    #     train_transform = transforms.Compose(
+    #         [transforms.ToTensor(), random_erase, transforms.ToPILImage(), train_transform]
+    #     )
+    #     test_transform = transforms.Compose(
+    #         [transforms.ToTensor(), random_erase, transforms.ToPILImage(), test_transform]
+    #     )
+
+    #     mnist_train = MNIST(data_root, transform=train_transform, download=True, train=True)
+
+    # def __getitem__(self, index: int) -> Tuple[Any, Any]:
+    #     """
+    #     Args:
+    #         index (int): Index
+
+    #     Returns:
+    #         tuple: (image, target) where target is index of the target class.
+    #     """
+    #     img, target = self.data[index], int(self.targets[index])
+
+    #     # doing this so that it is consistent with all other datasets
+    #     # to return a PIL Image
+    #     img = Image.fromarray(img.numpy(), mode="L")
+
+    #     p_erase = 0
+    #     scale_erase = 0
+
+    #     random_erase = transforms.RandomErasing(
+    #         p=p_erase, scale=(scale_erase, scale_erase), ratio=(1, 1)
+    #     )
+
+    #     prepend_transform = transforms.Compose([transforms.ToTensor(), transforms.ToPILImage()])
+
+    #     if self.transform is not None:
+    #         img = self.transform(img)
+
+    #     if self.target_transform is not None:
+    #         target = self.target_transform(target)
+
+    #     return img, target
+
+    def __getitem__(self, index: int) -> Tuple[Any, Any]:
+        img, target = super().__getitem__(index)
+
+        # TODO: this is just a metadata proxy. More could go here.
+        # TODO: should probably pre-create a corrupted dataset instead of on-the-fly, then add corruption status as group variable
+        m = torch.tensor([target])
+
+        return img, target, m
+
+
 class LisaCamelyon17Dataset(Camelyon17Dataset):
     def get_subset(self, split, frac=1.0, transform=None):
         """
@@ -283,13 +349,13 @@ class LisaWILDSSubset(WILDSDataset):
         self.do_transform_y = do_transform_y
 
     def __getitem__(self, idx):
-        x, y, _ = self.dataset[self.indices[idx]]
+        x, y, metadata = self.dataset[self.indices[idx]]
         if self.transform is not None:
             if self.do_transform_y:
                 x, y = self.transform(x, y)
             else:
                 x = self.transform(x)
-        return x, y
+        return x, y, metadata
 
     def __len__(self):
         return len(self.indices)

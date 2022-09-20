@@ -6,12 +6,12 @@ dataset:
             img_size: 32
             mean: [0.1307]
             std: [0.3081]
-        data_augmentation: # available operations are list in 'data_augmentation_args' below
-            - random_crop
-            - horizontal_flip
-            - vertical_flip
-            - color_distortion
-            - rotation
+        data_augmentation: [] # available operations are list in 'data_augmentation_args' below
+            # - random_crop
+            # - horizontal_flip
+            # - vertical_flip
+            # - color_distortion
+            # - rotation
         p:
             dataset: 'mnist'
             data_root: './data'
@@ -85,6 +85,7 @@ domain_classifier:
         arch: 'resnet50'
         in_channels: 1                                                  # Adapt depending on dataset
         n_outputs: 2
+        loss_type: "cross_entropy" # mean_squared_error
         optim_config:
             optimizer: ADAM # SGD / ADAM
             learning_rate: 1.e-5 # initial learning rate
@@ -107,6 +108,7 @@ task_classifier:
         arch: 'resnet50'
         in_channels: 1    
         n_outputs: 10 
+        loss_type: "cross_entropy" # mean_squared_error
         optim_config:
             optimizer: ADAM # SGD / ADAM
             learning_rate: 1.e-5 # initial learning rate
