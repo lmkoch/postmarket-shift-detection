@@ -81,6 +81,8 @@ class BaseClassifier(pl.LightningModule):
 
         self.save_hyperparameters()
 
+        self.n_classes = n_outputs
+
         if loss_type == "cross_entropy":
             self.loss_fn = torch.nn.CrossEntropyLoss()
         # elif loss_type == "mean_squared_error":
@@ -399,9 +401,7 @@ class TaskClassifier(BaseClassifier):
         outputs["y_p_sm"] = y_p_sm
         outputs["y_q_sm"] = y_q_sm
 
-        m_p = batch["p"][2]
-
-        outputs["m_p"] = m_p
+        outputs["m_p"] = batch["p"][2]
 
         return outputs
 
@@ -419,6 +419,12 @@ class TaskClassifier(BaseClassifier):
         matrix = np.concatenate((y[:, np.newaxis], y_pred[:, np.newaxis], metadata), axis=1)
         df = pd.DataFrame(data=matrix, columns=cols)
 
+        # whole dataset
+        group_specs = {"criterion": "all", "group": None, "n": len(df)}
+        results = self._performance_metrics(df)
+        metrics_df = metrics_df.append(group_specs | results, ignore_index=True)
+
+        # subgroups
         for col_idx in range(metadata.shape[1]):
 
             column = metadata[:, col_idx]
@@ -427,36 +433,15 @@ class TaskClassifier(BaseClassifier):
 
                 subset = df[df[col_idx] == group]
 
-                conf_mat = confusion_matrix(subset["y"], subset["y_pred"])
-
                 group_specs = {"criterion": col_idx, "group": group, "n": len(subset)}
-
-                results = {
-                    "acc": accuracy_score(subset["y"], subset["y_pred"]),
-                    "bal_acc": balanced_accuracy_score(subset["y"], subset["y_pred"]),
-                    "binary_acc_onset_1": accuracy_score(
-                        subset["y"] >= 1.0, subset["y_pred"] >= 1.0
-                    ),
-                    "binary_acc_onset_2": accuracy_score(
-                        subset["y"] >= 2.0, subset["y_pred"] >= 2.0
-                    ),
-                    "quadratic_kappa": quadratic_weighted_kappa(conf_mat),
-                }
 
                 print("========================================")
                 print(f"Group: {col_idx}={group} (n={len(subset)})")
-                print(f"Metrics:")
-                print(results)
-                print("Confusion Matrix:")
-                print(conf_mat)
-                # print('quadratic kappa: {}'.format(estimator.get_kappa(6)))
+
+                results = self._performance_metrics(subset)
                 print("========================================")
 
                 metrics_df = metrics_df.append(group_specs | results, ignore_index=True)
-
-                #
-
-        # print(metrics_df)
 
         log_dir = self.logger.log_dir
         out_csv = os.path.join(
@@ -464,6 +449,25 @@ class TaskClassifier(BaseClassifier):
         )
 
         metrics_df.to_csv(out_csv)
+
+    def _performance_metrics(self, subset):
+
+        conf_mat = confusion_matrix(subset["y"], subset["y_pred"], labels=range(self.n_classes))
+
+        results = {
+            "acc": accuracy_score(subset["y"], subset["y_pred"]),
+            "bal_acc": balanced_accuracy_score(subset["y"], subset["y_pred"]),
+            "binary_acc_onset_1": accuracy_score(subset["y"] >= 1.0, subset["y_pred"] >= 1.0),
+            "binary_acc_onset_2": accuracy_score(subset["y"] >= 2.0, subset["y_pred"] >= 2.0),
+            "quadratic_kappa": quadratic_weighted_kappa(conf_mat),
+        }
+
+        print(f"Metrics:")
+        print(results)
+        print("Confusion Matrix:")
+        print(conf_mat)
+
+        return results
 
 
 class EyepacsClassifier(TaskClassifier):

@@ -177,14 +177,14 @@ class Camelyon17Dataset(WILDSDataset):
         self._metadata_array = torch.stack(
             (
                 torch.LongTensor(self._metadata_df["center"].values.astype("long")),
-                torch.LongTensor(self._metadata_df["slide"].values),
+                # torch.LongTensor(self._metadata_df["slide"].values),
                 self._y_array,
             ),
             dim=1,
         )
-        self._metadata_fields = ["hospital", "slide", "y"]
+        self._metadata_fields = ["hospital", "y"]
 
-        super().__init__(root_dir, download, split_scheme)
+        # super().__init__(root_dir, download, split_scheme)
 
     def get_input(self, idx):
         """

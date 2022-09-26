@@ -2,6 +2,7 @@
 
 import argparse
 import os
+import sys
 
 import pytorch_lightning as pl
 from core.dataset import dataset_fn
@@ -19,124 +20,62 @@ from pytorch_lightning.loggers import TensorBoardLogger
 from utils.config import hash_dict, load_config, save_config
 
 
-def main(args, params):
+def sbatch_build_submit(job_name, slurm_log_dir):
 
-    ###############################################################################################################################
-    # Preparation
-    ###############################################################################################################################
+    os.makedirs(slurm_log_dir, exist_ok=True)
 
-    # TODO check for weird seed stuff
-    pl.seed_everything(args.seed, workers=True)
+    output_file = os.path.join(slurm_log_dir, f"{job_name}.out")
+    error_file = os.path.join(slurm_log_dir, f"{job_name}.err")
+    job_file = os.path.join(slurm_log_dir, "deploy.sh")
 
-    dataloader = dataset_fn(params_dict=params["dataset"])
+    with open(job_file, "w") as sbatch_file:
+        sbatch_file.writelines("#!/bin/bash\n")
 
-    ###############################################################################################################################
-    # Run training: separate exp hashes for all three methods (matched with dataset config)
-    ###############################################################################################################################
+        # TODO insert job-name, output, error
+        sbatch_file.writelines(f"#SBATCH --job-name={job_name}\n")
+        sbatch_file.writelines(f"#SBATCH --output={output_file}\n")
+        sbatch_file.writelines(f"#SBATCH --error={error_file}\n")
 
-    def train_model(checkpoint_callbacks, module, param_category, data_frac=1):
+        # slurm resources
 
-        artifacts_dir = os.path.join(args.exp_dir, param_category)
+        sbatch_file.writelines("#SBATCH --partition=gpu-2080ti\n")
+        sbatch_file.writelines("#SBATCH --ntasks=1\n")
+        sbatch_file.writelines("#SBATCH --time=3-0\n")
+        sbatch_file.writelines("#SBATCH --gres=gpu:1\n")
+        sbatch_file.writelines("#SBATCH --mem=60G\n")
+        sbatch_file.writelines("#SBATCH --cpus-per-task=8\n")
+        sbatch_file.writelines("#SBATCH --mail-type=END\n")
+        sbatch_file.writelines("#SBATCH --mail-user=lisa.koch@uni-tuebingen.de\n")
 
-        model_config = {k: params[k] for k in ["dataset", param_category]}
-        hash_string = hash_dict(model_config)
-        save_config(model_config, artifacts_dir)
-
-        # model
-        model = module(**params[param_category]["model"])
-
-        # training
-        logger = TensorBoardLogger(save_dir=artifacts_dir, name=hash_string)
-
-        data = DataModule(dataloader)
-
-        trainer = pl.Trainer(
-            max_epochs=params[param_category]["trainer"]["epochs"],
-            log_every_n_steps=10,
-            limit_train_batches=data_frac,  # TODO increase to 1.0 after debugging
-            limit_val_batches=data_frac,  # TODO increase to 1.0 after debugging
-            logger=logger,
-            callbacks=checkpoint_callbacks,
-            gpus=1,
+        # Body
+        sbatch_file.writelines("\n")
+        sbatch_file.writelines("scontrol show job ${SLURM_JOB_ID}\n\n")
+        sbatch_file.writelines(
+            [
+                "sudo /opt/eyepacs/start_eyepacs_mount.sh  \n",
+                "source ~/.bashrc \n",
+                "which conda\n" "conda env list\n" "nvidia-smi\n\n",
+                "ls -l\n\n",
+                "conda activate subgroup \n",
+                "which python\n\n",
+                "python "
+                + " ".join(sys.argv)
+                + "--no-slurm"
+                + "\n",  # execute locally on compute node
+                "sudo /opt/eyepacs/stop_eyepacs_mount.sh  \n",
+            ]
         )
 
-        trainer.fit(model, datamodule=data)
+    cmd_args = ["sbatch"]
+    cmd_args.append("--verbose")
+    cmd_args.append(job_file)
 
-        return trainer
+    # Ensure everything is a string
+    cmd_args = [str(s) for s in cmd_args]
 
-    if args.test_method == "mmdd":
-        checkpoint_callbacks = [
-            ModelCheckpoint(
-                monitor="val/loss",
-                filename="best-loss-{epoch}-{step}",
-            ),
-            ModelCheckpoint(
-                monitor="val/power",
-                filename="best-power-{epoch}-{step}",
-            ),
-        ]
+    cmd = " ".join(cmd_args)
 
-        specs = {
-            "param_category": "mmd",
-            "module": MaxKernel,
-            "checkpoint_callbacks": checkpoint_callbacks,
-        }
-
-    elif args.test_method == "c2st":
-        checkpoint_callbacks = [
-            ModelCheckpoint(
-                monitor="val/acc",
-                filename="best-acc-{epoch}-{step}",
-            ),
-            ModelCheckpoint(
-                monitor="val/loss",
-                filename="best-loss-{epoch}-{step}",
-            ),
-        ]
-
-        specs = {
-            "param_category": "domain_classifier",
-            "module": DomainClassifier,
-            "checkpoint_callbacks": checkpoint_callbacks,
-        }
-
-    # 3. MUKS
-    elif args.test_method == "muks":
-
-        if params["dataset"]["ds"]["p"]["dataset"] == "eyepacs":
-            model_class = EyepacsClassifier
-        else:
-            model_class = TaskClassifier
-
-        checkpoint_callbacks = [
-            ModelCheckpoint(
-                monitor="val/loss",
-                filename="best-loss-{epoch}-{step}",
-            ),
-            ModelCheckpoint(
-                monitor="val/acc",
-                filename="best-acc-{epoch}-{step}",
-            ),
-        ]
-
-        specs = {
-            "param_category": "task_classifier",
-            "module": model_class,
-            "checkpoint_callbacks": checkpoint_callbacks,
-        }
-
-    # Train model
-
-    trainer = train_model(**specs, data_frac=args.data_frac)
-
-    # Eval
-    from core.eval import eval
-
-    eval(trainer, params, sample_sizes=[10, 30, 50, 100, 200, 500])
-
-    # TODO witness stuff for C2ST
-
-    # res [{'val/loss_epoch': 0.7246412634849548, 'val/acc_epoch': 0.5092648267745972, 'test/power': 0.42, 'test/type_1err': 0.08}]
+    os.system(cmd)
 
 
 #####################
@@ -200,24 +139,172 @@ if __name__ == "__main__":
         type=float,
         help="Fraction of data to use (for debug purposes)",
     )
-
+    parser.add_argument(
+        "--slurm",
+        action="store_true",
+        default=False,
+        help="Prepare sbatch script and submit instead of executing locally",
+    )
+    parser.add_argument("--no-slurm", dest="slurm", action="store_false", default=False)
     args = parser.parse_args()
 
     params = load_config(args.config_file)
 
+    # mapping of correct config file chapter:
+    param_category = {"mmdd": "mmd", "c2st": "domain_classifier", "muks": "task_classifier"}
+
+    ###################
+    # TODO: this should be done in slurm runner already! + establish slurmlogs!
+
+    artifacts_dir = os.path.join(args.exp_dir, args.test_method)
+    model_config = {k: params[k] for k in ["dataset", param_category[args.test_method]]}
+    hash_string = hash_dict(model_config)
+
+    save_config(model_config, artifacts_dir)
+
+    # TODO: slurm state:
+    # - None: ignore, run experiment
+    # - write_sbatch: write sbatch script and exit
+
+    if args.slurm:
+
+        dataset_type = params["dataset"]["ds"]["p"]["dataset"]
+
+        import time
+
+        timestamp = time.time()
+
+        slurm_log_dir = os.path.join(artifacts_dir, hash_string, "slurm")
+        job_name = f"{args.test_method}_{dataset_type}_{timestamp}"
+
+        sbatch_build_submit(job_name, slurm_log_dir)
+
+        print("submitted job, do not execute locally")
+        sys.exit(0)
+    #
+
+    print("executing locally now")
     # run experiments:
 
     # MNIST: p=0.5 vs p = {0, 1}
     # Camelyon: all vs each site s = {0, ..., 4}
-    # Eyepacs: all vs. quality = {0, 1, 2}
-
-    # Epochs: 10
-    #
+    # Eyepacs: all vs. comorbidity = {False, True}
 
     # TODO:
     # 1. add specific options to parser, these should then override the config file.
     # 2. call this script with SLURM_TASK_ARRAY
 
-    main(args, params)
+    ###############################################################################################################################
+    # Preparation
+    ###############################################################################################################################
+
+    # TODO check for weird seed stuff
+    pl.seed_everything(args.seed, workers=True)
+
+    dataloader = dataset_fn(params_dict=params["dataset"])
+
+    data_module = DataModule(dataloader)
+
+    ###############################################################################################################################
+    # Run training: separate exp hashes for all three methods (matched with dataset config)
+    ###############################################################################################################################
+
+    if args.test_method == "mmdd":
+        checkpoint_callbacks = [
+            ModelCheckpoint(
+                monitor="val/loss",
+                filename="best-loss-{epoch}-{step}",
+            ),
+            ModelCheckpoint(
+                monitor="val/power",
+                filename="best-power-{epoch}-{step}",
+            ),
+        ]
+
+        specs = {
+            "module": MaxKernel,
+            "checkpoint_callbacks": checkpoint_callbacks,
+        }
+
+    elif args.test_method == "c2st":
+        checkpoint_callbacks = [
+            ModelCheckpoint(
+                monitor="val/acc",
+                filename="best-acc-{epoch}-{step}",
+            ),
+            ModelCheckpoint(
+                monitor="val/loss",
+                filename="best-loss-{epoch}-{step}",
+            ),
+        ]
+
+        specs = {
+            "module": DomainClassifier,
+            "checkpoint_callbacks": checkpoint_callbacks,
+        }
+
+    # 3. MUKS
+    elif args.test_method == "muks":
+
+        # TODO train with q=p
+
+        if params["dataset"]["ds"]["p"]["dataset"] == "eyepacs":
+            model_class = EyepacsClassifier
+        else:
+            model_class = TaskClassifier
+
+        checkpoint_callbacks = [
+            ModelCheckpoint(
+                monitor="val/loss",
+                filename="best-loss-{epoch}-{step}",
+            ),
+            ModelCheckpoint(
+                monitor="val/acc",
+                filename="best-acc-{epoch}-{step}",
+            ),
+        ]
+
+        specs = {
+            "module": model_class,
+            "checkpoint_callbacks": checkpoint_callbacks,
+        }
+
+    # Train model
+
+    category = param_category[args.test_method]
+
+    module = specs["module"]
+    checkpoint_callbacks = specs["checkpoint_callbacks"]
+
+    data_frac = args.data_frac
+
+    # model
+    model = module(**params[category]["model"])
+
+    # training
+    logger = TensorBoardLogger(save_dir=artifacts_dir, name=hash_string)
+
+    trainer = pl.Trainer(
+        max_epochs=params[category]["trainer"]["epochs"],
+        log_every_n_steps=100,
+        limit_train_batches=data_frac,  # TODO increase to 1.0 after debugging
+        limit_val_batches=data_frac,  # TODO increase to 1.0 after debugging
+        logger=logger,
+        callbacks=checkpoint_callbacks,
+        gpus=1,
+    )
+
+    trainer.fit(model, datamodule=data_module)
+
+    ###############################################################################################################################
+    # Run Eval:
+    ###############################################################################################################################
+    # Eval
+    from core.eval import eval
+
+    eval(trainer, params, sample_sizes=[10, 30, 50, 100, 200, 500])
+
+    # TODO for MUKS, train on whole dataset (different exp hash),
+    # eval on subgroup shift setting
 
     print("done")
