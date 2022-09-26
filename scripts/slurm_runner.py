@@ -117,7 +117,7 @@ def parse_args():
     parser.add_argument(
         "--base_mem",
         type=int,
-        default=60,
+        default=120,
     )
     parser.add_argument(
         "--base_cpu",

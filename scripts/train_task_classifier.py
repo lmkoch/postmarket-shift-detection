@@ -160,11 +160,10 @@ if __name__ == "__main__":
 
     save_config(model_config, artifacts_dir)
 
-    dataset_type = params["dataset"]["ds"]["p"]["dataset"]
-
     if args.slurm:
         # submit slurm job instead of executing locally
 
+        dataset_type = params["dataset"]["ds"]["p"]["dataset"]
         timestamp = time.time()
         job_name = f"{args.test_method}_{dataset_type}_{timestamp}"
 
@@ -204,54 +203,21 @@ if __name__ == "__main__":
     # Run training: separate exp hashes for all three methods (matched with dataset config)
     ###############################################################################################################################
 
-    if args.test_method == "mmdd":
-        checkpoint_callbacks = [
-            ModelCheckpoint(
-                monitor="val/loss",
-                filename="best-loss-{epoch}-{step}",
-            ),
-            ModelCheckpoint(
-                monitor="val/power",
-                filename="best-power-{epoch}-{step}",
-            ),
-        ]
+    if params["dataset"]["ds"]["p"]["dataset"] == "eyepacs":
+        module = EyepacsClassifier
+    else:
+        module = TaskClassifier
 
-        module = MaxKernel
-
-    elif args.test_method == "c2st":
-        checkpoint_callbacks = [
-            ModelCheckpoint(
-                monitor="val/acc",
-                filename="best-acc-{epoch}-{step}",
-            ),
-            ModelCheckpoint(
-                monitor="val/loss",
-                filename="best-loss-{epoch}-{step}",
-            ),
-        ]
-
-        module = DomainClassifier
-
-    # 3. MUKS
-    elif args.test_method == "muks":
-
-        # TODO train with q=p
-
-        if dataset_type == "eyepacs":
-            module = EyepacsClassifier
-        else:
-            module = TaskClassifier
-
-        checkpoint_callbacks = [
-            ModelCheckpoint(
-                monitor="val/loss",
-                filename="best-loss-{epoch}-{step}",
-            ),
-            ModelCheckpoint(
-                monitor="val/acc",
-                filename="best-acc-{epoch}-{step}",
-            ),
-        ]
+    checkpoint_callbacks = [
+        ModelCheckpoint(
+            monitor="val/loss",
+            filename="best-loss-{epoch}-{step}",
+        ),
+        ModelCheckpoint(
+            monitor="val/acc",
+            filename="best-acc-{epoch}-{step}",
+        ),
+    ]
 
     # Train model
 
@@ -268,20 +234,7 @@ if __name__ == "__main__":
     )
 
     model = module(**params[param_category[args.test_method]]["model"])
-
-    if args.test_method in ["c2st", "mmdd"]:
-        trainer.fit(model, datamodule=data_module)
-    elif args.test_method == "muks":
-
-        artifacts_path = {
-            "eyepacs": "experiments/endspurt/eyepacs_comorb/task_classifier/ed38371b2586ab224c4c55642b443b9b/version_0/checkpoints/best-loss-epoch=15-step=78112.ckpt",
-            "camelyon": "experiments/endspurt/camelyon/task_smallevents/task_classifier/1bd08d2856418bd6056d24f58671ec86/version_0/checkpoints/best-loss-epoch=13-step=248682.ckpt",
-            "mnist": "experiments/sept/task_classifier/cc3e541feacb044acb3e45b26dcbf987/version_7/checkpoints/best-loss-epoch=9-step=7810.ckpt",
-        }
-
-        # TODO TEST
-
-        model = module.load_from_checkpoint(artifacts_path[dataset_type])
+    trainer.fit(model, datamodule=data_module)
 
     ###############################################################################################################################
     # Run Eval:
@@ -289,12 +242,8 @@ if __name__ == "__main__":
     # Eval
     from core.eval import eval
 
-    if args.test_method in ["c2st", "mmdd"]:
-        ckpt_path = "best"
-    else:
-        ckpt_path = artifacts_path[dataset_type]
-        # ckpt_path = None
+    ckpt_path = "best"
 
-    eval(trainer, model, ckpt_path, params, sample_sizes=[10, 30, 50, 100, 200, 500])
+    eval(trainer, model, ckpt_path, params, sample_sizes=[10])
 
     print("done")

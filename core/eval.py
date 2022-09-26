@@ -13,6 +13,8 @@ def stderr_proportion(p, n):
 
 def eval(
     trainer,
+    model,
+    ckpt_path,
     params,
     split="test",  # FIXME need additional logic with trainer.validate
     sample_sizes=[10, 30, 50, 100, 500],
@@ -49,13 +51,10 @@ def eval(
 
         dataloader = dataset_fn(params_dict=params["dataset"], boot_strap_test=boot_strap_test)
 
-        res = trainer.test(datamodule=DataModule(dataloader))[0]
+        res = trainer.test(model=model, ckpt_path=ckpt_path, datamodule=DataModule(dataloader))[0]
         reject_rate = res["test/power"]
 
-        if not mmdd:
-            type_1_err = res["test/type_1err"]
-
-        else:
+        if mmdd:
             # MMD-D lightning model cannot natively calculate type 1 error - need to
             # calculate power on same distribution
             import copy
@@ -66,9 +65,14 @@ def eval(
             dataloader = dataset_fn(
                 params_dict=type_1_err_params["dataset"], boot_strap_test=boot_strap_test
             )
-            res = trainer.test(datamodule=DataModule(dataloader))[0]
+            res = trainer.test(
+                model=model, ckpt_path=ckpt_path, datamodule=DataModule(dataloader)
+            )[0]
 
             type_1_err = res["test/power"]
+
+        else:
+            type_1_err = res["test/type_1err"]
 
         res = {
             "sample_size": batch_size,

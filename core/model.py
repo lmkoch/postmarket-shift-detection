@@ -358,24 +358,31 @@ class TaskClassifier(BaseClassifier):
     #     self._shared_epoch_end(outputs, "train")
 
     def validation_epoch_end(self, outputs):
-        self._shared_epoch_end(outputs, "val")
+
+        batch_size = outputs[0]["y_p_sm"].shape[0]
+
+        power, type_1_err = self._shared_epoch_end(outputs, "val", sample_size=batch_size)
+
+        self.log(f"val/power", power, on_epoch=True, prog_bar=True, logger=True)
+        self.log(f"val/type_1err", type_1_err, on_epoch=True, prog_bar=True, logger=True)
 
     def test_epoch_end(self, outputs):
-        self._shared_epoch_end(outputs, "test")
 
-    def _shared_epoch_end(self, outputs, split):
+        batch_size = outputs[0]["y_p_sm"].shape[0]
+
+        # TODO: allow sample_size to be an array, and then return array of power/type_1_err. In this case I could
+        #       get around the huge batch sizes
+
+        self._shared_epoch_end(outputs, "test", sample_size=batch_size)
+
+    def _shared_epoch_end(self, outputs, split, sample_size):
 
         y_p_sm = torch.cat([x["y_p_sm"] for x in outputs]).detach().cpu().numpy()
         y_q_sm = torch.cat([x["y_q_sm"] for x in outputs]).detach().cpu().numpy()
 
-        batch_size = outputs[0]["y_p_sm"].shape[0]
-
         power, type_1_err = repeated_test(
-            y_p_sm, y_q_sm, mass_ks_test, num_reps=100, alpha=0.05, sample_size=batch_size
+            y_p_sm, y_q_sm, mass_ks_test, num_reps=100, alpha=0.05, sample_size=sample_size
         )
-
-        self.log(f"{split}/power", power, on_epoch=True, prog_bar=True, logger=True)
-        self.log(f"{split}/type_1err", type_1_err, on_epoch=True, prog_bar=True, logger=True)
 
         self._shared_subgroup_analysis(outputs, split)
 
