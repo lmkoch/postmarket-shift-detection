@@ -146,6 +146,12 @@ if __name__ == "__main__":
         default=False,
         help="Prepare sbatch script and submit instead of executing locally",
     )
+    parser.add_argument(
+        "--cpu",
+        action="store_true",
+        default=False,
+        help="Run on CPU",
+    )
     parser.add_argument("--no-slurm", dest="slurm", action="store_false", default=False)
     args = parser.parse_args()
 
@@ -227,7 +233,7 @@ if __name__ == "__main__":
             ModelCheckpoint(
                 monitor="val/loss",
                 filename="best-loss-{epoch}-{step}",
-            ),
+            ),  # TODO maybe switch order so it's consistent with MUKS?
         ]
 
         module = DomainClassifier
@@ -254,6 +260,7 @@ if __name__ == "__main__":
     # Train model
 
     # training
+    gpus = 0 if args.cpu else 1
 
     trainer = pl.Trainer(
         max_epochs=params[param_category[args.test_method]]["trainer"]["epochs"],
@@ -262,7 +269,7 @@ if __name__ == "__main__":
         limit_val_batches=args.data_frac,
         logger=logger,
         callbacks=checkpoint_callbacks,
-        gpus=1,
+        gpus=gpus,
     )
 
     model = module(**params[param_category[args.test_method]]["model"])

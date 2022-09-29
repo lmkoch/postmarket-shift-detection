@@ -1,5 +1,6 @@
 import os
 from argparse import ArgumentError
+from dataclasses import replace
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import numpy as np
@@ -16,7 +17,7 @@ from utils.helpers import balanced_weights
 from utils.transforms import data_transforms
 
 
-def dataset_fn(params_dict, boot_strap_test=False) -> Dict:
+def dataset_fn(params_dict, replacement=False, num_samples=None) -> Dict:
     """
     Returns data loaders for the given config
     Args:
@@ -48,11 +49,6 @@ def dataset_fn(params_dict, boot_strap_test=False) -> Dict:
 
         for split in ["train", "val", "test"]:
 
-            boot_strap = False
-
-            if split in ["val", "test"] and boot_strap_test:
-                boot_strap = True
-
             dataloader[split][p_q] = get_dataloader(
                 dataset[split],
                 batch_size=params_dl["batch_size"],
@@ -61,7 +57,8 @@ def dataset_fn(params_dict, boot_strap_test=False) -> Dict:
                 sampling_weights=params_dl[p_q]["sampling_weights"],
                 num_workers=params_dl["num_workers"],
                 pin_memory=params_dl["pin_memory"],
-                boot_strapping=boot_strap,
+                replacement=replacement,
+                num_samples=num_samples,
             )
 
     return {
@@ -160,7 +157,8 @@ def get_dataloader(
     sampling_weights: list,
     num_workers: int = 4,
     pin_memory: bool = True,
-    boot_strapping: bool = False,
+    replacement: bool = False,
+    num_samples: int = None,
 ):
     """Get dataloader based on a dataset and minibatch sampling strategy
 
@@ -173,14 +171,10 @@ def get_dataloader(
         Dataloader:
     """
 
-    if boot_strapping:
-        num_samples = batch_size * 100  # TODO how many batches?
-        #         C2ST/MUKS: 50'000 (doesn't matter so much, but should depend on
-        #         largest test sample size), MMD?
-        replacement = True
-    else:
-        num_samples = None
-        replacement = False
+    if not replacement and num_samples != None:
+        raise ValueError(
+            f"num_samples: {num_samples}, should be None for replacement={replacement}"
+        )
 
     if use_sampling:
         # weights for balanced minibatches

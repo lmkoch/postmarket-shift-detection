@@ -53,7 +53,7 @@ def sbatch_build_submit(job_name, slurm_log_dir, argv):
         sbatch_file.writelines("scontrol show job ${SLURM_JOB_ID}\n\n")
         sbatch_file.writelines(
             [
-                "sudo /opt/eyepacs/start_eyepacs_mount.sh  \n",
+                "sudo /opt/eyepacs/start_mount.sh  \n",
                 "source ~/.bashrc \n",
                 "which conda\n" "conda env list\n" "nvidia-smi\n\n",
                 "ls -l\n\n",
@@ -63,7 +63,7 @@ def sbatch_build_submit(job_name, slurm_log_dir, argv):
                 + " ".join(argv)
                 + " --no-slurm"
                 + "\n",  # execute locally on compute node
-                "sudo /opt/eyepacs/stop_eyepacs_mount.sh  \n",
+                "sudo /opt/eyepacs/stop_mount.sh  \n",
             ]
         )
 
@@ -146,6 +146,12 @@ if __name__ == "__main__":
         default=False,
         help="Prepare sbatch script and submit instead of executing locally",
     )
+    parser.add_argument(
+        "--cpu",
+        action="store_true",
+        default=False,
+        help="Run on CPU",
+    )
     parser.add_argument("--no-slurm", dest="slurm", action="store_false", default=False)
     args = parser.parse_args()
 
@@ -220,8 +226,7 @@ if __name__ == "__main__":
     ]
 
     # Train model
-
-    # training
+    gpus = 0 if args.cpu else 1
 
     trainer = pl.Trainer(
         max_epochs=params[param_category[args.test_method]]["trainer"]["epochs"],
@@ -230,7 +235,7 @@ if __name__ == "__main__":
         limit_val_batches=args.data_frac,
         logger=logger,
         callbacks=checkpoint_callbacks,
-        gpus=1,
+        gpus=gpus,
     )
 
     model = module(**params[param_category[args.test_method]]["model"])
@@ -238,12 +243,12 @@ if __name__ == "__main__":
 
     ###############################################################################################################################
     # Run Eval:
+    #
+    # No replacement -> useful for subgroup performance analysis
     ###############################################################################################################################
-    # Eval
-    from core.eval import eval
 
     ckpt_path = "best"
 
-    eval(trainer, model, ckpt_path, params, sample_sizes=[10])
+    trainer.test(model=model, ckpt_path=ckpt_path, datamodule=DataModule(dataloader))
 
     print("done")

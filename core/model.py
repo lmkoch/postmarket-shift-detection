@@ -12,9 +12,13 @@ import torch.nn as nn
 import torchmetrics
 import torchvision
 from pytorch_lightning.trainer.supporters import CombinedLoader
-from scipy.stats import permutation_test
 from sklearn.metrics import accuracy_score, balanced_accuracy_score, confusion_matrix
-from utils.helpers import quadratic_weighted_kappa, stat_C2ST
+from utils.helpers import (
+    consistency_analysis,
+    permutation_test_c2st,
+    quadratic_weighted_kappa,
+    repeated_test,
+)
 
 from core.mmdd import assemble_loss, mmd_test
 from core.muks import mass_ks_test
@@ -307,26 +311,6 @@ class MaxKernel(BaseClassifier):
         return self.sigma0OPT**2
 
 
-def repeated_test(x_pop, y_pop, test_fun, num_reps=100, alpha=0.05, sample_size=100):
-
-    power = 0
-    type_1_err = 0
-
-    for _ in range(num_reps):
-
-        x = x_pop[np.random.choice(x_pop.shape[0], size=sample_size, replace=True)]
-        x2 = x_pop[np.random.choice(x_pop.shape[0], size=sample_size, replace=True)]
-        y = y_pop[np.random.choice(y_pop.shape[0], size=sample_size, replace=True)]
-
-        power += test_fun(x, y) < alpha
-        type_1_err += test_fun(x, x2) < alpha
-
-    power = power / num_reps
-    type_1_err = type_1_err / num_reps
-
-    return power, type_1_err
-
-
 class TaskClassifier(BaseClassifier):
     def __init__(self, *args, **kwargs):
 
@@ -386,32 +370,8 @@ class TaskClassifier(BaseClassifier):
         y_p_sm, y_q_sm = self._shared_epoch_end(outputs, "test")
 
         out_csv = os.path.join(self.logger.log_dir, f"test_consistency_analysis.csv")
-        df = pd.DataFrame(columns=["sample_size", "power", "type_1err", "method"])
 
-        sample_sizes = self.test_sample_sizes
-
-        for batch_size in sample_sizes:
-
-            power, type_1_err = repeated_test(
-                y_p_sm, y_q_sm, mass_ks_test, num_reps=100, alpha=0.05, sample_size=batch_size
-            )
-
-            res = {
-                "sample_size": batch_size,
-                "power": power,
-                "type_1err": type_1_err,
-            }
-
-            df = df.append(pd.DataFrame(res, index=[""]), ignore_index=True)
-
-        from utils.helpers import stderr_proportion
-
-        df["power_stderr"] = stderr_proportion(df["power"], df["sample_size"].astype(float))
-        df["type_1err_stderr"] = stderr_proportion(
-            df["type_1err"], df["sample_size"].astype(float)
-        )
-
-        df.to_csv(out_csv)
+        consistency_analysis(y_p_sm, y_q_sm, mass_ks_test, self.test_sample_sizes, out_csv)
 
     def _shared_epoch_end(self, outputs, split):
 
@@ -635,7 +595,19 @@ class DomainClassifier(BaseClassifier):
 
     def validation_epoch_end(self, outputs):
 
-        power, type_1_err, witness_fig = self._shared_epoch_end(outputs)
+        sample_p, sample_q, witness_fig = self._shared_epoch_end(outputs)
+
+        # TODO report both binary and logits result
+
+        power, type_1_err = repeated_test(
+            sample_p,
+            sample_q,
+            permutation_test_c2st,
+            num_reps=100,
+            alpha=0.05,
+            sample_size=100,
+            replace=False,  # this requires replacement in dataloder!!!
+        )
 
         self.log("val/power", power, on_epoch=True, prog_bar=True, logger=True)
         self.log("val/type_1err", type_1_err, on_epoch=True, prog_bar=True, logger=True)
@@ -663,10 +635,7 @@ class DomainClassifier(BaseClassifier):
 
     def test_epoch_end(self, outputs):
 
-        power, type_1_err, witness_fig = self._shared_epoch_end(outputs)
-
-        self.log("test/power", power, on_epoch=True, prog_bar=True, logger=True)
-        self.log("test/type_1err", type_1_err, on_epoch=True, prog_bar=True, logger=True)
+        sample_p, sample_q, witness_fig = self._shared_epoch_end(outputs)
 
         self.logger.experiment.add_figure(
             "test/witness_examples", witness_fig, self.trainer.global_step
@@ -676,6 +645,15 @@ class DomainClassifier(BaseClassifier):
         out_fig = os.path.join(log_dir, f"test_witness_examples.pdf")
 
         witness_fig.savefig(out_fig)
+
+        # power analysis
+        out_csv = os.path.join(self.logger.log_dir, f"test_consistency_analysis.csv")
+
+        # TODO report both binary and logits result
+
+        consistency_analysis(
+            sample_p, sample_q, permutation_test_c2st, self.test_sample_sizes, out_csv
+        )
 
     def _shared_test_step(self, batch, batch_idx) -> None:
 
@@ -696,9 +674,6 @@ class DomainClassifier(BaseClassifier):
         return outputs
 
     def _shared_epoch_end(self, outputs):
-        def _permutation_test_wrapper(x, y):
-            res = permutation_test((x, y), stat_C2ST)
-            return res.pvalue
 
         batch_size = outputs[0]["y"].shape[0]
 
@@ -712,17 +687,6 @@ class DomainClassifier(BaseClassifier):
 
         sample_p = witness[y == 1]
         sample_q = witness[y == 0]
-
-        # TODO report both binary and logits result
-
-        power, type_1_err = repeated_test(
-            sample_p,
-            sample_q,
-            _permutation_test_wrapper,
-            num_reps=100,
-            alpha=0.05,
-            sample_size=batch_size,
-        )
 
         df = pd.DataFrame({"witness": witness, "y": y})
         fig, ax = plt.subplots()
@@ -750,7 +714,7 @@ class DomainClassifier(BaseClassifier):
 
             figimg = ax.figure.figimage(img, *coord_img)
 
-        return power, type_1_err, fig
+        return sample_p, sample_q, fig
 
 
 # Define the deep network for MMD-D
