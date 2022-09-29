@@ -174,7 +174,9 @@ def get_dataloader(
     """
 
     if boot_strapping:
-        num_samples = batch_size * 100
+        num_samples = batch_size * 100  # TODO how many batches?
+        #         C2ST/MUKS: 50'000 (doesn't matter so much, but should depend on
+        #         largest test sample size), MMD?
         replacement = True
     else:
         num_samples = None
@@ -436,6 +438,10 @@ class EyepacsDataset(VisionDataset):
             [ethnicities[ele] for ele in self._metadata_df["patient_ethnicity"]]
         )
 
+        self._comorbidity_array = torch.LongTensor(
+            self._metadata_df["diagnoses_comorbidities"].values
+        )
+
         self._metadata_array = torch.stack(
             (
                 self._side_array,
@@ -444,11 +450,21 @@ class EyepacsDataset(VisionDataset):
                 self._age_array,
                 self._quality_array,
                 self._ethnicity_array,
+                self._comorbidity_array,
                 self._y_array,
             ),
             dim=1,
         )
-        self._metadata_fields = ["side", "field", "gender", "age", "quality", "ethnicity", "y"]
+        self._metadata_fields = [
+            "side",
+            "field",
+            "gender",
+            "age",
+            "quality",
+            "ethnicity",
+            "comorbidity",
+            "y",
+        ]
 
         self.targets = list(self._y_array)
         self.classes = sorted(list(set(self.targets)))

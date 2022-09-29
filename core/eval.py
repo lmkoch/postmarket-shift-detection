@@ -2,13 +2,10 @@ import os
 
 import numpy as np
 import pandas as pd
+from utils.helpers import stderr_proportion
 
 from core.dataset import dataset_fn
-from core.model import MaxKernel
-
-
-def stderr_proportion(p, n):
-    return np.sqrt(p * (1 - p) / n)
+from core.model import DomainClassifier, MaxKernel, TaskClassifier
 
 
 def eval(
@@ -38,12 +35,24 @@ def eval(
 
     from core.model import DataModule
 
-    if isinstance(trainer.model, MaxKernel):
-        mmdd = True
-        boot_strap_test = True
-    else:
-        mmdd = False
+    if isinstance(model, TaskClassifier):
+        test_type = "muks"
         boot_strap_test = False
+
+        model.test_sample_sizes = sample_sizes
+
+        dataloader = dataset_fn(params_dict=params["dataset"])
+        trainer.test(model=model, ckpt_path=ckpt_path, datamodule=DataModule(dataloader))
+        return
+
+    elif isinstance(model, MaxKernel):
+        test_type = "mmdd"
+        boot_strap_test = True
+    elif isinstance(model, DomainClassifier):
+        test_type = "c2st"
+        boot_strap_test = False
+    else:
+        raise ValueError(f"Unsupported model: {trainer.model}")
 
     for batch_size in sample_sizes:
 
@@ -54,7 +63,7 @@ def eval(
         res = trainer.test(model=model, ckpt_path=ckpt_path, datamodule=DataModule(dataloader))[0]
         reject_rate = res["test/power"]
 
-        if mmdd:
+        if test_type == "mmdd":
             # MMD-D lightning model cannot natively calculate type 1 error - need to
             # calculate power on same distribution
             import copy

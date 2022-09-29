@@ -53,7 +53,7 @@ def sbatch_build_submit(job_name, slurm_log_dir, argv):
         sbatch_file.writelines("scontrol show job ${SLURM_JOB_ID}\n\n")
         sbatch_file.writelines(
             [
-                "sudo /opt/eyepacs/start_eyepacs_mount.sh  \n",
+                "sudo /opt/eyepacs/start_mount.sh  \n",
                 "source ~/.bashrc \n",
                 "which conda\n" "conda env list\n" "nvidia-smi\n\n",
                 "ls -l\n\n",
@@ -63,7 +63,7 @@ def sbatch_build_submit(job_name, slurm_log_dir, argv):
                 + " ".join(argv)
                 + " --no-slurm"
                 + "\n",  # execute locally on compute node
-                "sudo /opt/eyepacs/stop_eyepacs_mount.sh  \n",
+                "sudo /opt/eyepacs/stop_mount.sh  \n",
             ]
         )
 
@@ -234,8 +234,6 @@ if __name__ == "__main__":
 
     # 3. MUKS
     elif args.test_method == "muks":
-
-        # TODO train with q=p
 
         if dataset_type == "eyepacs":
             module = EyepacsClassifier

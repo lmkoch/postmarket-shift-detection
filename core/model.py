@@ -1,4 +1,3 @@
-import logging
 import os
 from argparse import ArgumentError
 from typing import Dict
@@ -66,13 +65,13 @@ class DataModule(pl.LightningDataModule):
         super().__init__()
 
     def train_dataloader(self):
-        return CombinedLoader(self.train_loaders)
+        return CombinedLoader(self.train_loaders, mode="max_size_cycle")
 
     def val_dataloader(self):
-        return CombinedLoader(self.val_loaders)
+        return CombinedLoader(self.val_loaders, mode="max_size_cycle")
 
     def test_dataloader(self):
-        return CombinedLoader(self.test_loaders)
+        return CombinedLoader(self.test_loaders, mode="max_size_cycle")
 
 
 class BaseClassifier(pl.LightningModule):
@@ -329,6 +328,11 @@ def repeated_test(x_pop, y_pop, test_fun, num_reps=100, alpha=0.05, sample_size=
 
 
 class TaskClassifier(BaseClassifier):
+    def __init__(self, *args, **kwargs):
+
+        self._test_sample_sizes = [10, 30, 50, 100, 500]
+        super().__init__(*args, **kwargs)
+
     def training_step(self, batch, batch_idx) -> None:
 
         # for the case batch consists of more than x, y (e.g. x, y, m), pass only x, y
@@ -359,34 +363,64 @@ class TaskClassifier(BaseClassifier):
 
     def validation_epoch_end(self, outputs):
 
-        batch_size = outputs[0]["y_p_sm"].shape[0]
+        y_p_sm, y_q_sm = self._shared_epoch_end(outputs, "val")
 
-        power, type_1_err = self._shared_epoch_end(outputs, "val", sample_size=batch_size)
+        # log power for sample size=100
+        power, type_1_err = repeated_test(
+            y_p_sm, y_q_sm, mass_ks_test, num_reps=100, alpha=0.05, sample_size=100
+        )
 
         self.log(f"val/power", power, on_epoch=True, prog_bar=True, logger=True)
         self.log(f"val/type_1err", type_1_err, on_epoch=True, prog_bar=True, logger=True)
 
+    @property
+    def test_sample_sizes(self):
+        return self._test_sample_sizes
+
+    @test_sample_sizes.setter
+    def test_sample_sizes(self, sample_sizes):
+        self._test_sample_sizes = sample_sizes
+
     def test_epoch_end(self, outputs):
 
-        batch_size = outputs[0]["y_p_sm"].shape[0]
+        y_p_sm, y_q_sm = self._shared_epoch_end(outputs, "test")
 
-        # TODO: allow sample_size to be an array, and then return array of power/type_1_err. In this case I could
-        #       get around the huge batch sizes
+        out_csv = os.path.join(self.logger.log_dir, f"test_consistency_analysis.csv")
+        df = pd.DataFrame(columns=["sample_size", "power", "type_1err", "method"])
 
-        self._shared_epoch_end(outputs, "test", sample_size=batch_size)
+        sample_sizes = self.test_sample_sizes
 
-    def _shared_epoch_end(self, outputs, split, sample_size):
+        for batch_size in sample_sizes:
+
+            power, type_1_err = repeated_test(
+                y_p_sm, y_q_sm, mass_ks_test, num_reps=100, alpha=0.05, sample_size=batch_size
+            )
+
+            res = {
+                "sample_size": batch_size,
+                "power": power,
+                "type_1err": type_1_err,
+            }
+
+            df = df.append(pd.DataFrame(res, index=[""]), ignore_index=True)
+
+        from utils.helpers import stderr_proportion
+
+        df["power_stderr"] = stderr_proportion(df["power"], df["sample_size"].astype(float))
+        df["type_1err_stderr"] = stderr_proportion(
+            df["type_1err"], df["sample_size"].astype(float)
+        )
+
+        df.to_csv(out_csv)
+
+    def _shared_epoch_end(self, outputs, split):
 
         y_p_sm = torch.cat([x["y_p_sm"] for x in outputs]).detach().cpu().numpy()
         y_q_sm = torch.cat([x["y_q_sm"] for x in outputs]).detach().cpu().numpy()
 
-        power, type_1_err = repeated_test(
-            y_p_sm, y_q_sm, mass_ks_test, num_reps=100, alpha=0.05, sample_size=sample_size
-        )
-
         self._shared_subgroup_analysis(outputs, split)
 
-        return power, type_1_err
+        return y_p_sm, y_q_sm
 
     def _shared_test_step(self, batch, batch_idx):
 
@@ -662,7 +696,7 @@ class DomainClassifier(BaseClassifier):
         return outputs
 
     def _shared_epoch_end(self, outputs):
-        def permutation_test_wrapper(x, y):
+        def _permutation_test_wrapper(x, y):
             res = permutation_test((x, y), stat_C2ST)
             return res.pvalue
 
@@ -684,7 +718,7 @@ class DomainClassifier(BaseClassifier):
         power, type_1_err = repeated_test(
             sample_p,
             sample_q,
-            permutation_test_wrapper,
+            _permutation_test_wrapper,
             num_reps=100,
             alpha=0.05,
             sample_size=batch_size,

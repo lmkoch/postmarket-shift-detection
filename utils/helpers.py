@@ -6,6 +6,10 @@ import torch
 import torchvision
 
 
+def stderr_proportion(p, n):
+    return np.sqrt(p * (1 - p) / n)
+
+
 def set_rcParams():
 
     sns.set_context("paper")
@@ -22,8 +26,8 @@ def set_rcParams():
     plt.rcParams["xtick.minor.size"] = 1
     plt.rcParams["ytick.minor.size"] = 1
     plt.rcParams["font.size"] = 8
-    plt.rcParams["axes.titlesize"] = 10
-    plt.rcParams["axes.labelsize"] = 10
+    plt.rcParams["axes.titlesize"] = 8
+    plt.rcParams["axes.labelsize"] = 8
     plt.rcParams["legend.fontsize"] = 6.5
     plt.rcParams["xtick.labelsize"] = 7
     plt.rcParams["ytick.labelsize"] = 7
