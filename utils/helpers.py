@@ -4,6 +4,7 @@ import pandas as pd
 import seaborn as sns
 import torch
 import torchvision
+from scipy.stats import permutation_test
 
 
 def stderr_proportion(p, n):
@@ -188,6 +189,11 @@ def stat_C2ST(sample_a, sample_b):
     return stat
 
 
+def permutation_test_c2st(x, y):
+    res = permutation_test((x, y), stat_C2ST)
+    return res.pvalue
+
+
 def quadratic_weighted_kappa(conf_mat):
     assert conf_mat.shape[0] == conf_mat.shape[1]
     cate_num = conf_mat.shape[0]
@@ -210,3 +216,54 @@ def quadratic_weighted_kappa(conf_mat):
     observed = (conf_mat * weighted_matrix).sum()
     expected = (expected_matrix * weighted_matrix).sum()
     return (observed - expected) / (1 - expected)
+
+
+def repeated_test(x_pop, y_pop, test_fun, num_reps=100, alpha=0.05, sample_size=100, replace=True):
+
+    power = 0
+    type_1_err = 0
+
+    for _ in range(num_reps):
+
+        x = x_pop[np.random.choice(x_pop.shape[0], size=sample_size, replace=replace)]
+        x2 = x_pop[np.random.choice(x_pop.shape[0], size=sample_size, replace=replace)]
+        y = y_pop[np.random.choice(y_pop.shape[0], size=sample_size, replace=replace)]
+
+        power += test_fun(x, y) < alpha
+        type_1_err += test_fun(x, x2) < alpha
+
+    power = power / num_reps
+    type_1_err = type_1_err / num_reps
+
+    return power, type_1_err
+
+
+def consistency_analysis(population_p, population_q, test_func, sample_sizes, out_file):
+
+    # power analysis
+    df = pd.DataFrame(columns=["sample_size", "power", "type_1err", "method"])
+
+    for batch_size in sample_sizes:
+
+        power, type_1_err = repeated_test(
+            population_p,
+            population_q,
+            test_func,
+            num_reps=100,
+            alpha=0.05,
+            sample_size=batch_size,
+            replace=False,  # This requires replacement in dataloader!!
+        )
+
+        res = {
+            "sample_size": batch_size,
+            "power": power,
+            "type_1err": type_1_err,
+        }
+
+        df = df.append(pd.DataFrame(res, index=[""]), ignore_index=True)
+
+    df["power_stderr"] = stderr_proportion(df["power"], df["sample_size"].astype(float))
+    df["type_1err_stderr"] = stderr_proportion(df["type_1err"], df["sample_size"].astype(float))
+
+    df.to_csv(out_file)
