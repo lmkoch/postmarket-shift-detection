@@ -209,7 +209,9 @@ if __name__ == "__main__":
     # Run training: separate exp hashes for all three methods (matched with dataset config)
     ###############################################################################################################################
 
-    if params["dataset"]["ds"]["p"]["dataset"] == "eyepacs":
+    dataset_type = params["dataset"]["ds"]["p"]["dataset"]
+
+    if dataset_type == "eyepacs":
         module = EyepacsClassifier
     else:
         module = TaskClassifier
@@ -250,5 +252,27 @@ if __name__ == "__main__":
     ckpt_path = "best"
 
     trainer.test(model=model, ckpt_path=ckpt_path, datamodule=DataModule(dataloader))
+
+    # MNIST only: report subgroup performances here (as corruptness subgroups are not configured in Dataset class)
+    if dataset_type == "mnist":
+
+        for p_erase in [0, 1]:
+
+            params["dataset"]["ds"]["p"]["subset_params"]["p_erase"] = p_erase
+            dataloader = dataset_fn(params_dict=params["dataset"])
+            data_module = DataModule(dataloader)
+
+            logger = TensorBoardLogger(save_dir=artifacts_dir, name=f"{hash_string}_{p_erase}")
+
+            trainer = pl.Trainer(
+                max_epochs=params[param_category[args.test_method]]["trainer"]["epochs"],
+                logger=logger,
+                callbacks=checkpoint_callbacks,
+                gpus=gpus,
+            )
+
+            model = module(**params[param_category[args.test_method]]["model"])
+
+            trainer.test(model=model, ckpt_path=ckpt_path, datamodule=data_module)
 
     print("done")

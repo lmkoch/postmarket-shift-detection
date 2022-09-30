@@ -101,6 +101,13 @@ class BaseClassifier(pl.LightningModule):
             )
             self.model.fc = nn.Linear(self.model.fc.in_features, n_outputs)
 
+        elif arch == "resnet18":
+            self.model = torchvision.models.resnet18(pretrained=True)
+            self.model.conv1 = nn.Conv2d(
+                in_channels, 64, kernel_size=7, stride=2, padding=3, bias=False
+            )
+            self.model.fc = nn.Linear(self.model.fc.in_features, n_outputs)
+
         else:
             raise NotImplementedError(f"Model not implemented: {arch}")
 
@@ -157,8 +164,8 @@ class BaseClassifier(pl.LightningModule):
         loss = self.loss_fn(y_pred, y)
         self.val_acc(y_pred, y)
 
-        self.log("val/loss", loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
-        self.log("val/acc", self.val_acc, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        self.log("val/loss", loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)
+        self.log("val/acc", self.val_acc, on_step=False, on_epoch=True, prog_bar=True, logger=True)
 
         y_pred = torch.argmax(y_pred, dim=1)
 
@@ -230,7 +237,7 @@ class MaxKernel(BaseClassifier):
         x_p, *_ = batch["p"]
         x_q, *_ = batch["q"]
 
-        self.log("val/loss", loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        self.log("val/loss", loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)
 
         img_p = torchvision.utils.make_grid(x_p[:8], normalize=True)
         img_q = torchvision.utils.make_grid(x_q[:8], normalize=True)

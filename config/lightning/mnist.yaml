@@ -70,7 +70,7 @@ mmd:
         in_channels: 1
         loss_type: 'mmd2'
         loss_lambda: 10**(-6)
-        feature_extractor: 'resnet50'
+        feature_extractor: 'liu' # 'resnet50'
         optim_config:
             optimizer: ADAM # SGD / ADAM
             learning_rate: 1.e-4 # initial learning rate
@@ -79,7 +79,7 @@ mmd:
             weight_decay: 0.0005 # set to 0 to disable weight decay
             lr_scheduler: True    
     trainer:
-        epochs: 10    
+        epochs: 25    
 domain_classifier:
     model:
         arch: 'resnet50'
@@ -105,19 +105,19 @@ domain_classifier:
         plot_images_first_only: True
 task_classifier:
     model:
-        arch: 'resnet50'
+        arch: 'resnet18'
         in_channels: 1    
         n_outputs: 10 
         loss_type: "cross_entropy" # mean_squared_error
         optim_config:
-            optimizer: ADAM # SGD / ADAM
-            learning_rate: 1.e-5 # initial learning rate
+            optimizer: SGD # SGD / ADAM
+            learning_rate: 1.e-3 # initial learning rate
             momentum: 0.9 # only for SGD. set to 0 to disable momentum
             nesterov: True # only for SGD.
             weight_decay: 0.0005 # set to 0 to disable weight decay
             lr_scheduler: True
     trainer:
-        epochs: 10                                                       # Adapt depending on dataset
+        epochs: 25                                                       # Adapt depending on dataset
 
 
 

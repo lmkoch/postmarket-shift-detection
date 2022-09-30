@@ -227,13 +227,13 @@ if __name__ == "__main__":
     elif args.test_method == "c2st":
         checkpoint_callbacks = [
             ModelCheckpoint(
+                monitor="val/loss",
+                filename="best-loss-{epoch}-{step}",
+            ),
+            ModelCheckpoint(
                 monitor="val/acc",
                 filename="best-acc-{epoch}-{step}",
             ),
-            ModelCheckpoint(
-                monitor="val/loss",
-                filename="best-loss-{epoch}-{step}",
-            ),  # TODO maybe switch order so it's consistent with MUKS?
         ]
 
         module = DomainClassifier
