@@ -44,9 +44,14 @@ def load_all_results(hashes, exp_dir, split="test"):
         all_configs[exp_name] = flatten_dict(params, sep="_")
 
         # FIXME version should maybe be "latest"?
+
+        versions = os.listdir(os.path.join(exp_dir, exp_name))
+
         results_file = os.path.join(
-            exp_dir, exp_name, "version_0", f"{split}_consistency_analysis.csv"
+            exp_dir, exp_name, versions[-1], f"{split}_consistency_analysis.csv"
         )
+
+        print(f"Loading {results_file}")
 
         if os.path.exists(results_file):
             result = pd.read_csv(results_file)
@@ -58,10 +63,14 @@ def load_all_results(hashes, exp_dir, split="test"):
             # raise ValueError('results are not available. run consistency analysis first')
 
     configs = pd.DataFrame.from_dict(all_configs, orient="index")
-    results = pd.concat(all_results)
     configs.rename_axis("exp_hash", inplace=True)
-    results = results.set_index(["exp_hash", "sample_size"], drop=False)
-    df = configs.join(results)
+
+    if len(all_results) > 0:
+        results = pd.concat(all_results)
+        results = results.set_index(["exp_hash", "sample_size"], drop=False)
+        df = configs.join(results)
+    else:
+        df = configs
 
     return df
 
@@ -528,6 +537,106 @@ def plot_results(eval_dir, exp_dirs, subset_spec_column, experiment_name):
     plt.close(fig)
 
 
+def generate_latex_subgroup_table(eval_dir):
+
+    artifacts_path = {
+        "eyepacs": "experiments/endspurt/eyepacs_comorb/task_classifier/ed38371b2586ab224c4c55642b443b9b/version_0/checkpoints/best-loss-epoch=15-step=78112.ckpt",
+        "camelyon": "experiments/endspurt/camelyon/task_smallevents/task_classifier/1bd08d2856418bd6056d24f58671ec86/version_0/checkpoints/best-loss-epoch=13-step=248682.ckpt",
+        # "mnist": "experiments/oct/task/mnist/muks/0f2ab3ce9f01eb2f5c230e2c2aa2f99f/version_0/checkpoints/best-loss-epoch=13-step=10934.ckpt",
+    }
+
+    datasets = ["eyepacs", "camelyon", "mnist"]
+
+    out_csv = {ele: os.path.join(eval_dir, f"{ele}_subgroup_performance.csv") for ele in datasets}
+
+    eyepacs_categories = {
+        "2.0": "sex",
+        "4.0": "quality",
+        "5.0": "ethnicity",
+        "6.0": "co-morbidity",
+    }
+
+    camelyon_categories = {"0.0": "hospital"}
+
+    genders = {"Male": 0, "Female": 1, "Other": 2}
+    image_qualities = {
+        "Insufficient for Full Interpretation": 0,
+        "Adequate": 1,
+        "Good": 2,
+        "Excellent": 3,
+    }
+    ethnicities = {
+        "Latin American": 0,
+        "Caucasian": 1,
+        "African Descent": 2,
+        "Asian": 3,
+        "Indian subcontinent origin": 4,
+        "Native American": 5,
+        "Multi-racial": 6,
+    }
+
+    quality_map = dict((float(v), k) for k, v in image_qualities.items())
+    ethnicity_map = dict((float(v), k) for k, v in ethnicities.items())
+    sex_map = dict((float(v), k) for k, v in genders.items())
+
+    for k, v in artifacts_path.items():
+
+        path_bits = v.split("/")
+
+        base_path = "/".join(path_bits[:-2])
+        epoch_num = path_bits[-1].split("epoch=")[1].split("-step")[0]
+
+        if k == "eyepacs":
+            # FIXME this is the subgroup evaluation I did post-hoc (original one does not contain co-morbidities)
+            # TODO use re-trained model once complete, then I don't need this hack anymore
+            base_path = "./experiments/endspurt/eyepacs_comorbid/subgroup_eval/muks/ed38371b2586ab224c4c55642b443b9b/version_2"
+
+        # TODO change back after debuggin
+        # base_path = "../experiments/oct/debug_latex_table"
+
+        subgroup_file = os.path.join(base_path, f"test_subgroup_performance_epoch:{epoch_num}.csv")
+
+        df = pd.read_csv(subgroup_file)
+
+        if k == "eyepacs":
+
+            df["criterion"].replace(eyepacs_categories, inplace=True)
+
+            df["group"].loc[df["criterion"] == "sex"] = (
+                df["group"].loc[df["criterion"] == "sex"].replace(sex_map, inplace=False)
+            )
+            df["group"].loc[df["criterion"] == "quality"] = (
+                df["group"].loc[df["criterion"] == "quality"].replace(quality_map, inplace=False)
+            )
+            df["group"].loc[df["criterion"] == "ethnicity"] = (
+                df["group"]
+                .loc[df["criterion"] == "ethnicity"]
+                .replace(ethnicity_map, inplace=False)
+            )
+            # df[df["criterion"] == "quality"]["group"].replace(quality_map, inplace=True)
+            # df[df["criterion"] == "ethnicity"]["group"].replace(ethnicity_map, inplace=True)
+
+            # TODO limit decimal digits of acc
+            # TODO save only some criteria of interest?
+
+            # TODO generalise to other datasets
+            keep_rows = ["all"] + list(eyepacs_categories.values())
+
+        elif k == "camelyon":
+            df["criterion"].replace(camelyon_categories, inplace=True)
+            keep_rows = ["all"] + list(camelyon_categories.values())
+
+        df = df.query(f"criterion in {keep_rows}")
+
+        df["n"] = df["n"].astype(int)
+
+        # out_csv = "../experiments/oct/debug_latex_table/out.csv"
+        # df[["criterion", "group", "n", "acc"]].to_csv(out_csv, float_format="%.3f")
+        df[["criterion", "group", "n", "acc"]].to_csv(out_csv[k], float_format="%.3f")
+
+    pass
+
+
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(
@@ -538,36 +647,27 @@ if __name__ == "__main__":
         action="store",
         type=str,
         help="Results directory (will be created if it does not exist)",
-        default="./experiments/endspurt/eval",
+        default="./experiments/oct/eval",
     )
     parser.add_argument("--run_hyperparam", action="store", type=bool, help="", default=True)
     args = parser.parse_args()
 
-    # List of hashes.
-    # Need to know:
-    # - dataset
-    # - test type (per hash)
-    # - config (per hash)
+    generate_latex_subgroup_table(args.eval_dir)
 
-    # # plot example data
-    # hashes = os.listdir(args.exp_dir_mnist)
-    # for exp_name in hashes:
-    #     save_example_images(args.exp_dir_mnist, exp_name)
-
-    # hashes = os.listdir(args.exp_dir_camelyon)
-    # for exp_name in hashes:
-    #     save_example_images(args.exp_dir_camelyon, exp_name)
-
-    # plot_subgroup_results_mnist_camelyon(args.eval_dir, args.exp_dir_mnist, args.exp_dir_camelyon)
+    test_types = ["muks", "c2st", "mmdd"]
 
     #####################################################################################3
     # MNIST
 
-    exp_dirs = {
-        "muks": "./experiments/endspurt/mnist/task_classifier",
-        "c2st": "./experiments/endspurt/mnist/domain_classifier",
-        "mmdd": "./experiments/endspurt/mnist/mmd",
+    details = {
+        "exp_type": "mnist",
+        "subset_spec_column": "dataset_ds_q_subset_params_p_erase",
+        "eval_string": "mnist_corrupt",
     }
+
+    exp_type = "mnist"
+
+    exp_dirs = {ele: f"./experiments/oct/{exp_type}/{ele}" for ele in test_types}
 
     # specific to camelyon
     subset_spec_column = "dataset_ds_q_subset_params_p_erase"
@@ -577,11 +677,9 @@ if __name__ == "__main__":
     #####################################################################################3
     # Camelyon
 
-    exp_dirs = {
-        "muks": "./experiments/endspurt/camelyon/muks",
-        "c2st": "./experiments/endspurt/camelyon/domain_classifier",
-        "mmdd": "./experiments/endspurt/camelyon/mmdd",
-    }
+    exp_type = "camelyon"
+
+    exp_dirs = {ele: f"./experiments/oct/{exp_type}/{ele}" for ele in test_types}
 
     # specific to camelyon
     subset_spec_column = "dataset_ds_q_subset_params_center"
@@ -591,39 +689,28 @@ if __name__ == "__main__":
     #####################################################################################3
     # Eyepacs
 
-    exp_dirs = {
-        "muks": "./experiments/endspurt/eyepacs_comorb/muks",
-        "c2st": "./experiments/endspurt/eyepacs_comorb/c2st",
-        "mmdd": "./experiments/endspurt/eyepacs_comorb/mmdd",
-    }
-
-    # specific to eyepacs
+    exp_type = "eyepacs_comorb"
+    exp_dirs = {ele: f"./experiments/oct/{exp_type}/{ele}" for ele in test_types}
     subset_spec_column = "dataset_ds_q_subset_params_diagnoses_comorbidities"
 
     plot_results(args.eval_dir, exp_dirs, subset_spec_column, "eyepacs_comorbidities")
 
-    #####################################################################################3
-    # Eyepacs
+    exp_type = "eyepacs_ethnicity"
+    exp_dirs = {ele: f"./experiments/oct/{exp_type}/{ele}" for ele in test_types}
+    subset_spec_column = "dataset_ds_q_subset_params_patient_ethnicity"
 
-    exp_dirs = {
-        "muks": "./experiments/endspurt/eyepacs_comorb/muks",
-        "c2st": "./experiments/endspurt/eyepacs_comorb/c2st",
-        "mmdd": "./experiments/endspurt/eyepacs_comorb/mmdd",
-    }
+    plot_results(args.eval_dir, exp_dirs, subset_spec_column, "eyepacs_ethnicity")
 
-    # specific to eyepacs
-    subset_spec_column = "dataset_ds_q_subset_params_diagnoses_comorbidities"
+    exp_type = "eyepacs_gender"
+    exp_dirs = {ele: f"./experiments/oct/{exp_type}/{ele}" for ele in test_types}
+    subset_spec_column = "dataset_ds_q_subset_params_patient_gender"
 
-    plot_results(args.eval_dir, exp_dirs, subset_spec_column, "eyepacs_comorbidities")
+    plot_results(args.eval_dir, exp_dirs, subset_spec_column, "eyepacs_gender")
 
-    # generate_table_ood(args.eval_dir, args.exp_dir_ood)
+    exp_type = "eyepacs_quality"
+    exp_dirs = {ele: f"./experiments/oct/{exp_type}/{ele}" for ele in test_types}
+    subset_spec_column = "dataset_ds_q_subset_params_session_image_quality"
 
-    # plot_subgroup_results_mnist_camelyon_appendix(
-    #     args.eval_dir, args.exp_dir_mnist, args.exp_dir_camelyon
-    # )
-
-    # # model selection
-    # if args.run_hyperparam:
-    #     mmd_model_selection(args.exp_dir_hyperparam, args.eval_dir)
+    plot_results(args.eval_dir, exp_dirs, subset_spec_column, "eyepacs_quality")
 
     print("done")

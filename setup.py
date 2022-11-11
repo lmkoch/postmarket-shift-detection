@@ -25,6 +25,7 @@ setup(
         "multi_level_split @ git+https://github.com/lmkoch/multi-level-split",
         "pytorch-lightning",
         "munch",
+        "opentsne",
     ],
     license="MIT",
 )

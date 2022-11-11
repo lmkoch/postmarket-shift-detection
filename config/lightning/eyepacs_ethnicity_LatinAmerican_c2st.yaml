@@ -1,0 +1,157 @@
+dataset:
+  dl:
+    batch_size: 16
+    num_workers: 4
+    p:
+      sampling_by_variable: targets
+      sampling_weights:
+      - 1
+      - 1
+      - 1
+      - 1
+      - 1
+      - 1
+      - 1
+      - 1
+      - 1
+      - 1
+      use_sampling: false
+    pin_memory: true
+    q:
+      sampling_by_variable: targets
+      sampling_weights:
+      - 1
+      - 1
+      - 1
+      - 1
+      - 1
+      - 1
+      - 1
+      - 1
+      - 1
+      - 1
+      use_sampling: false
+  ds:
+    basic_preproc:
+      img_size: 96
+      mean:
+      - 0.425753653049469
+      - 0.29737451672554016
+      - 0.21293757855892181
+      std:
+      - 0.27670302987098694
+      - 0.20240527391433716
+      - 0.1686241775751114
+    data_augmentation:
+    - random_crop
+    - horizontal_flip
+    - vertical_flip
+    - color_distortion
+    - rotation
+    data_augmentation_args:
+      color_distortion:
+        brightness: 0.2
+        contrast: 0.2
+        hue: 0.1
+        prob: 1.0
+        saturation: 0.1
+      gaussian_blur:
+        kernel_size: 7
+        prob: 0.2
+        sigma: 0.5
+      grayscale:
+        prob: 0.5
+      horizontal_flip:
+        prob: 0.5
+      random_crop:
+        prob: 1.0
+        ratio:
+        - 0.7
+        - 1.3
+        scale:
+        - 0.87
+        - 1.15
+      rotation:
+        degrees:
+        - -180
+        - 180
+        prob: 1.0
+      translation:
+        prob: 1
+        range:
+        - 0.2
+        - 0.2
+      value_fill: 0
+      vertical_flip:
+        prob: 0.5
+    p:
+      data_root: /mnt/qb/eyepacs
+      dataset: eyepacs
+      subset_params:
+        patient_ethnicity:
+        - Latin American
+        - Caucasian
+        - African Descent
+        - Asian
+        - Indian subcontinent origin
+        - Native American
+        - Multi-racial
+    q:
+      data_root: /mnt/qb/eyepacs
+      dataset: eyepacs
+      subset_params:
+        patient_ethnicity:
+        - Latin American
+domain_classifier:
+  eval:
+    alpha: 0.05
+    eval_interval_globalstep: 300
+    n_permute: 100
+    n_test_reps: 10
+    num_eval_batches: 30
+    plot_images_first_only: true
+  model:
+    arch: resnet50
+    in_channels: 3
+    loss_type: cross_entropy
+    n_outputs: 2
+    optim_config:
+      learning_rate: 0.001
+      lr_scheduler: true
+      momentum: 0.9
+      nesterov: true
+      optimizer: SGD
+      weight_decay: 0.0005
+  trainer:
+    epochs: 25
+mmd:
+  model:
+    feature_extractor: resnet50
+    img_size: 96
+    in_channels: 3
+    loss_lambda: 10**(-6)
+    loss_type: mmd2
+    optim_config:
+      learning_rate: 0.0001
+      lr_scheduler: true
+      momentum: 0.9
+      nesterov: true
+      optimizer: ADAM
+      weight_decay: 0.0005
+  trainer:
+    epochs: 10
+task_classifier:
+  model:
+    arch: resnet50
+    in_channels: 3
+    loss_type: cross_entropy
+    n_outputs: 5
+    optim_config:
+      learning_rate: 0.001
+      lr_scheduler: true
+      momentum: 0.9
+      nesterov: true
+      optimizer: SGD
+      weight_decay: 0.0005
+  trainer:
+    epochs: 25

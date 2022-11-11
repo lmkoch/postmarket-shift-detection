@@ -217,6 +217,10 @@ if __name__ == "__main__":
                 filename="best-loss-{epoch}-{step}",
             ),
             ModelCheckpoint(
+                monitor="val/loss",
+                filename="best-loss",
+            ),
+            ModelCheckpoint(
                 monitor="val/power",
                 filename="best-power-{epoch}-{step}",
             ),
@@ -229,6 +233,10 @@ if __name__ == "__main__":
             ModelCheckpoint(
                 monitor="val/loss",
                 filename="best-loss-{epoch}-{step}",
+            ),
+            ModelCheckpoint(
+                monitor="val/loss",
+                filename="best-loss",
             ),
             ModelCheckpoint(
                 monitor="val/acc",
@@ -252,6 +260,10 @@ if __name__ == "__main__":
                 filename="best-loss-{epoch}-{step}",
             ),
             ModelCheckpoint(
+                monitor="val/loss",
+                filename="best-loss",
+            ),
+            ModelCheckpoint(
                 monitor="val/acc",
                 filename="best-acc-{epoch}-{step}",
             ),
@@ -270,18 +282,39 @@ if __name__ == "__main__":
         logger=logger,
         callbacks=checkpoint_callbacks,
         gpus=gpus,
+        num_sanity_val_steps=0,
     )
 
-    model = module(**params[param_category[args.test_method]]["model"])
-
     if args.test_method in ["c2st", "mmdd"]:
+
+        import glob
+
+        log_dir = os.path.join(
+            artifacts_dir,
+            hash_string,
+        )
+
+        versions = os.listdir(log_dir)
+        checkpoint_dir = os.path.join(log_dir, versions[-1], "checkpoints")
+
+        checkpoint_path = glob.glob(f"{checkpoint_dir}/best-loss-*.ckpt")[0]
+
+        if len(checkpoint_path) > 0:
+            checkpoint_path = checkpoint_path[0]
+        else:
+            print(f"No checkpoint available for exp: {log_dir}")
+
+        # TODO: if train, fit the model. Else: load latest checkpoint
+
+        model = module(**params[param_category[args.test_method]]["model"])
+
         trainer.fit(model, datamodule=data_module)
     elif args.test_method == "muks":
 
         artifacts_path = {
             "eyepacs": "experiments/endspurt/eyepacs_comorb/task_classifier/ed38371b2586ab224c4c55642b443b9b/version_0/checkpoints/best-loss-epoch=15-step=78112.ckpt",
             "camelyon": "experiments/endspurt/camelyon/task_smallevents/task_classifier/1bd08d2856418bd6056d24f58671ec86/version_0/checkpoints/best-loss-epoch=13-step=248682.ckpt",
-            "mnist": "experiments/sept/task_classifier/cc3e541feacb044acb3e45b26dcbf987/version_7/checkpoints/best-loss-epoch=9-step=7810.ckpt",
+            "mnist": "experiments/oct/task/mnist/muks/0f2ab3ce9f01eb2f5c230e2c2aa2f99f/version_0/checkpoints/best-loss-epoch=13-step=10934.ckpt",
         }
 
         # TODO TEST

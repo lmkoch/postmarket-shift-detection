@@ -3,15 +3,15 @@ dataset:
     # dataset
     ds:
         basic_preproc:
-            img_size: 512
+            img_size: 96
             mean: [0.425753653049469, 0.29737451672554016, 0.21293757855892181] # 'auto' or a list of three numbers for RGB
             std: [0.27670302987098694, 0.20240527391433716, 0.1686241775751114] # 'auto' or a list of three numbers for RGB
-        data_augmentation:  # available operations are list in 'data_augmentation_args' below
-            - random_crop
-            - horizontal_flip
-            - vertical_flip
-            - color_distortion
-            - rotation
+        data_augmentation: []  # available operations are list in 'data_augmentation_args' below
+            # - random_crop
+            # - horizontal_flip
+            # - vertical_flip
+            # - color_distortion
+            # - rotation
         p:
             dataset: 'eyepacs'
             # data_root: '/home/lkoch/mnt/cin_root/data/eyepacs/'
@@ -28,7 +28,7 @@ dataset:
             # data_root: '/gpfs01/berens/data/data/eyepacs'
             subset_params:
                 # session_image_quality: ["Adequate"]
-                diagnoses_comorbidities: [True]
+                diagnoses_comorbidities: [True] # [False] # 
                 # session_image_quality: ["Adequate", "Good", "Excellent"]
         data_augmentation_args:
           horizontal_flip:
@@ -85,7 +85,7 @@ mmd:
             weight_decay: 0.0005 # set to 0 to disable weight decay
             lr_scheduler: True    
     trainer:
-        epochs: 10    
+        epochs: 25    
 domain_classifier:
     model:
         arch: 'resnet50'

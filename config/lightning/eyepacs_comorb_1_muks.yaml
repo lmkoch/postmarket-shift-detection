@@ -29,6 +29,7 @@ dataset:
             subset_params:
                 # session_image_quality: ["Adequate"]
                 diagnoses_comorbidities: [True]
+                # diagnoses_comorbidities: [True] # [False]
                 # session_image_quality: ["Adequate", "Good", "Excellent"]
         data_augmentation_args:
           horizontal_flip:

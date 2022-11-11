@@ -3,7 +3,7 @@ dataset:
     # dataset
     ds:
         basic_preproc:
-            img_size: 512
+            img_size: 96
             mean: [0.425753653049469, 0.29737451672554016, 0.21293757855892181] # 'auto' or a list of three numbers for RGB
             std: [0.27670302987098694, 0.20240527391433716, 0.1686241775751114] # 'auto' or a list of three numbers for RGB
         data_augmentation:  # available operations are list in 'data_augmentation_args' below
@@ -19,16 +19,16 @@ dataset:
             # data_root: '/gpfs01/berens/data/data/eyepacs'
             subset_params:
                 # session_image_quality: ["Good", "Excellent"]
-                diagnoses_comorbidities: [True, False]
-                # session_image_quality: ["Adequate", "Good", "Excellent"]
+                # diagnoses_comorbidities: [True, False]
+                session_image_quality: ["Adequate", "Good", "Excellent"]
         q:
             dataset: 'eyepacs'
             data_root: '/mnt/qb/eyepacs'
             # data_root: '/home/lkoch/mnt/cin_root/data/eyepacs/'
             # data_root: '/gpfs01/berens/data/data/eyepacs'
             subset_params:
-                # session_image_quality: ["Adequate"]
-                diagnoses_comorbidities: [True]
+                session_image_quality: ["Adequate"]
+                # diagnoses_comorbidities: [True] # [False]
                 # session_image_quality: ["Adequate", "Good", "Excellent"]
         data_augmentation_args:
           horizontal_flip:

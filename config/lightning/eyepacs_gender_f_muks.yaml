@@ -19,8 +19,9 @@ dataset:
             # data_root: '/gpfs01/berens/data/data/eyepacs'
             subset_params:
                 # session_image_quality: ["Good", "Excellent"]
-                diagnoses_comorbidities: [True, False]
+                # diagnoses_comorbidities: [True, False]
                 # session_image_quality: ["Adequate", "Good", "Excellent"]
+                patient_gender: ["Male", "Female", "Other"]
         q:
             dataset: 'eyepacs'
             data_root: '/mnt/qb/eyepacs'
@@ -28,8 +29,9 @@ dataset:
             # data_root: '/gpfs01/berens/data/data/eyepacs'
             subset_params:
                 # session_image_quality: ["Adequate"]
-                diagnoses_comorbidities: [True]
+                # diagnoses_comorbidities: [True] # [False]
                 # session_image_quality: ["Adequate", "Good", "Excellent"]
+                patient_gender: ["Female"]
         data_augmentation_args:
           horizontal_flip:
             prob: 0.5

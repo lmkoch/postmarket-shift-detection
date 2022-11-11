@@ -376,6 +376,14 @@ class EyepacsDataset(VisionDataset):
             export_year - self._metadata_df["clinical_encounterDate"]
         )
 
+        # TODO age bins:
+        # [0, 18)
+        # [18, 35)
+        # [35, 60)
+        # [60, Inf)
+
+        # self._metadata_df["patient_age_buckets"] =
+
         # co-morbidity: at least one diagnosis other than DR
         co_diagnoses = [
             "diagnosis_cataract",
@@ -452,12 +460,12 @@ class EyepacsDataset(VisionDataset):
         self._metadata_fields = [
             "side",
             "field",
-            "gender",
-            "age",
-            "quality",
-            "ethnicity",
-            "comorbidity",
-            "y",
+            "patient_gender",
+            "patient_age",
+            "session_image_quality",
+            "patient_ethnicity",
+            "diagnoses_comorbidities",
+            "diagnosis_image_dr_level",
         ]
 
         self.targets = list(self._y_array)
@@ -474,6 +482,32 @@ class EyepacsDataset(VisionDataset):
         m = self._metadata_array[idx]
 
         return x, y, m, idx
+
+    def print_summary(self):
+
+        print("Dataset summary:")
+
+        print(f"N = {len(self._metadata_df)}")
+
+        print("Age:")
+        print(
+            f"Mean (std): {self._metadata_df['patient_age'].mean():.0f} ({self._metadata_df['patient_age'].std():.0f})"
+        )
+
+        print("Sex:")
+        print(f"{self._metadata_df['patient_gender'].value_counts()}")
+
+        print("Ethnicity:")
+        print(f"{self._metadata_df['patient_ethnicity'].value_counts()}")
+
+        print("Image quality:")
+        print(f"{self._metadata_df['session_image_quality'].value_counts()}")
+
+        print("Presence of co-morbidities")
+        print(f"{self._metadata_df['diagnoses_comorbidities'].value_counts()}")
+
+        print("DR grade")
+        print(f"{self._metadata_df['diagnosis_image_dr_level'].value_counts()}")
 
     def get_input(self, idx):
         """

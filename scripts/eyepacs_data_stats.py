@@ -107,7 +107,7 @@ if __name__ == "__main__":
         action="store",
         type=str,
         help="experiment folder",
-        default="./experiments/tmp",
+        default="./experiments/oct/data_stats",
     )
     parser.add_argument(
         "--config_file",
@@ -115,9 +115,8 @@ if __name__ == "__main__":
         type=str,
         help="config file",
         # default="./config/eyepacs_quality_ood.yaml"
-        # default="./config/lightning/eyepacs_quality_ood.yaml"
-        # default="./config/lightning/mnist.yaml"
         default="./config/lightning/eyepacs.yaml"
+        # default="./config/lightning/mnist.yaml"
         # default='./experiments/hypothesis-tests/mnist/5c3010e7e9f5de06c7d55ecbed422251/config.yaml'
     )
     parser.add_argument(
@@ -158,43 +157,6 @@ if __name__ == "__main__":
 
     params = load_config(args.config_file)
 
-    # mapping of correct config file chapter:
-    param_category = {"mmdd": "mmd", "c2st": "domain_classifier", "muks": "task_classifier"}
-
-    artifacts_dir = os.path.join(args.exp_dir, args.test_method)
-    model_config = {k: params[k] for k in ["dataset", param_category[args.test_method]]}
-    hash_string = hash_dict(model_config)
-
-    save_config(model_config, artifacts_dir)
-
-    if args.slurm:
-        # submit slurm job instead of executing locally
-
-        dataset_type = params["dataset"]["ds"]["p"]["dataset"]
-        timestamp = time.time()
-        job_name = f"{args.test_method}_{dataset_type}_{timestamp}"
-
-        slurm_log_dir = os.path.join(artifacts_dir, hash_string, "slurm")
-
-        sbatch_build_submit(job_name, slurm_log_dir, sys.argv)
-
-        print("submitted job, do not execute locally")
-        sys.exit(0)
-    #
-
-    print("executing locally now")
-    # run experiments:
-
-    # MNIST: p=0.5 vs p = {0, 1}
-    # Camelyon: all vs each site s = {0, ..., 4}
-    # Eyepacs: all vs. comorbidity = {False, True}
-
-    # TODO:
-    # 1. add specific options to parser, these should then override the config file.
-    # 2. call this script with SLURM_TASK_ARRAY
-
-    ###############################################################################################################################
-    # Preparation
     ###############################################################################################################################
 
     # TODO check for weird seed stuff
@@ -202,79 +164,19 @@ if __name__ == "__main__":
 
     dataloader = dataset_fn(params_dict=params["dataset"])
 
-    data_module = DataModule(dataloader)
+    for k, v in dataloader.items():
 
-    logger = TensorBoardLogger(save_dir=artifacts_dir, name=hash_string)
+        # print(f"split: {k}: {dataloader[k]['p'].dataset}")
 
-    ###############################################################################################################################
-    # Run training: separate exp hashes for all three methods (matched with dataset config)
-    ###############################################################################################################################
+        dset = dataloader[k]["p"].dataset
 
-    dataset_type = params["dataset"]["ds"]["p"]["dataset"]
+        print("----------------------------------------")
+        print(f"Split: {k}")
+        print("----------------------------------------")
 
-    if dataset_type == "eyepacs":
-        module = EyepacsClassifier
-    else:
-        module = TaskClassifier
+        dset.print_summary()
 
-    checkpoint_callbacks = [
-        ModelCheckpoint(
-            monitor="val/loss",
-            filename="best-loss-{epoch}-{step}",
-        ),
-        ModelCheckpoint(
-            monitor="val/acc",
-            filename="best-acc-{epoch}-{step}",
-        ),
-    ]
-
-    # Train model
-    gpus = 0 if args.cpu else 1
-
-    trainer = pl.Trainer(
-        max_epochs=params[param_category[args.test_method]]["trainer"]["epochs"],
-        log_every_n_steps=100,
-        limit_train_batches=args.data_frac,
-        limit_val_batches=args.data_frac,
-        logger=logger,
-        callbacks=checkpoint_callbacks,
-        gpus=gpus,
-        num_sanity_val_steps=0,
-    )
-
-    model = module(**params[param_category[args.test_method]]["model"])
-    trainer.fit(model, datamodule=data_module)
-
-    ###############################################################################################################################
-    # Run Eval:
-    #
-    # No replacement -> useful for subgroup performance analysis
-    ###############################################################################################################################
-
-    ckpt_path = "best"
-
-    trainer.test(model=model, ckpt_path=ckpt_path, datamodule=DataModule(dataloader))
-
-    # MNIST only: report subgroup performances here (as corruptness subgroups are not configured in Dataset class)
-    if dataset_type == "mnist":
-
-        for p_erase in [0, 1]:
-
-            params["dataset"]["ds"]["p"]["subset_params"]["p_erase"] = p_erase
-            dataloader = dataset_fn(params_dict=params["dataset"])
-            data_module = DataModule(dataloader)
-
-            logger = TensorBoardLogger(save_dir=artifacts_dir, name=f"{hash_string}_{p_erase}")
-
-            trainer = pl.Trainer(
-                max_epochs=params[param_category[args.test_method]]["trainer"]["epochs"],
-                logger=logger,
-                callbacks=checkpoint_callbacks,
-                gpus=gpus,
-            )
-
-            model = module(**params[param_category[args.test_method]]["model"])
-
-            trainer.test(model=model, ckpt_path=ckpt_path, datamodule=data_module)
-
+    # TODO all stats regarding subgroups...
+    # Age: mean/std per split
+    # Gender: f/m/other per split
     print("done")

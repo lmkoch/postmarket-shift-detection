@@ -11,6 +11,7 @@ import torch
 import torch.nn as nn
 import torchmetrics
 import torchvision
+from openTSNE import TSNE
 from pytorch_lightning.trainer.supporters import CombinedLoader
 from sklearn.metrics import accuracy_score, balanced_accuracy_score, confusion_matrix
 from utils.helpers import (
@@ -19,6 +20,7 @@ from utils.helpers import (
     quadratic_weighted_kappa,
     repeated_test,
 )
+from utils.tsne_utils import plot
 
 from core.mmdd import assemble_loss, mmd_test
 from core.muks import mass_ks_test
@@ -111,6 +113,10 @@ class BaseClassifier(pl.LightningModule):
         else:
             raise NotImplementedError(f"Model not implemented: {arch}")
 
+        # need this for visualising penultimate layer later
+        layers = list(self.model.children())[:-1]
+        self.feature_extractor = nn.Sequential(*layers)
+
         self.optim_params = optim_config
 
         self.val_acc = torchmetrics.Accuracy()
@@ -119,6 +125,10 @@ class BaseClassifier(pl.LightningModule):
     def forward(self, x):
         logits = self.model(x)
         return logits
+
+    def get_features(self, x):
+        x = self.feature_extractor(x).flatten(1)
+        return x
 
     def configure_optimizers(self):
         optimizer = initialize_optimizer(
@@ -182,6 +192,10 @@ class MaxKernel(BaseClassifier):
         loss_lambda=10**-6,
         feature_extractor="liu",
     ):
+
+        # def __init__(self, arch, in_channels, n_outputs, loss_type, optim_config):
+        #     super().__init__()
+
         super(BaseClassifier, self).__init__()
 
         self.save_hyperparameters()
@@ -205,6 +219,10 @@ class MaxKernel(BaseClassifier):
         self.sigma0OPT = nn.Parameter(torch.ones(1) * np.sqrt(0.005))
 
         self.optim_params = optim_config
+
+    def get_features(self, x):
+        x = self.model(x).flatten(1)
+        return x
 
     def forward(self, x):
         logits = self.model(x)
@@ -280,19 +298,25 @@ class MaxKernel(BaseClassifier):
 
         loss = self.loss_fn(feat_p, feat_q, x_p, x_q, sigma, sigma0_u, ep)
 
-        return {"loss": loss, "hypothesis_rejected": h_u}
+        outputs = {"loss": loss, "hypothesis_rejected": h_u}
+
+        # feature extraction for t-sne
+        outputs["feat_p"] = self.get_features(x_p)
+        outputs["feat_q"] = self.get_features(x_q)
+
+        return outputs
 
     def validation_epoch_end(self, outputs):
 
-        power = self._shared_epoch_end(outputs)
+        power = self._shared_epoch_end(outputs, "val")
         self.log("val/power", power, on_epoch=True, prog_bar=True, logger=True)
 
     def test_epoch_end(self, outputs):
 
-        power = self._shared_epoch_end(outputs)
+        power = self._shared_epoch_end(outputs, "test")
         self.log("test/power", power, on_epoch=True, prog_bar=True, logger=True)
 
-    def _shared_epoch_end(self, outputs):
+    def _shared_epoch_end(self, outputs, split):
         loss = torch.stack([x["loss"] for x in outputs])
         hypothesis_rejected = np.stack([x["hypothesis_rejected"] for x in outputs])
 
@@ -302,6 +326,48 @@ class MaxKernel(BaseClassifier):
             power = np.nan
         else:
             power = np.mean(hypothesis_rejected)
+
+        log_dir = self.logger.log_dir
+
+        # TODO stack feature reps into one array
+        feat_p = torch.cat([x["feat_p"] for x in outputs]).detach().cpu().numpy()
+        feat_q = torch.cat([x["feat_q"] for x in outputs]).detach().cpu().numpy()
+
+        out_arr_p = os.path.join(log_dir, f"{split}_feat_p.npy")
+        with open(out_arr_p, "wb") as f:
+            np.save(f, feat_p)
+
+        feat = np.concatenate((feat_p, feat_q))
+        out_arr_p = os.path.join(log_dir, f"{split}_feat.npy")
+        with open(out_arr_p, "wb") as f:
+            np.save(f, feat)
+
+        # make labels (p, q)
+
+        # labels_p = np.ones(feat_p.shape[0])
+        # labels_q = np.zeros(feat_q.shape[0])
+        # y = np.concatenate([labels_p, labels_q], 0).squeeze()
+
+        labels_p = ["P"] * feat_p.shape[0]
+        labels_q = ["Q"] * feat_q.shape[0]
+        y = labels_p + labels_q
+
+        # TODO t-sne
+        from openTSNE import TSNE
+        from utils.tsne_utils import plot
+
+        # TODO useful tsne parameters
+        tsne = TSNE()
+        embedding = tsne.fit(feat)
+
+        # TODO meaningful labels (P, Q)
+        fig, ax = plot(embedding, y)
+
+        self.logger.experiment.add_figure(f"{split}/tsne", fig, self.trainer.global_step)
+
+        out_fig = os.path.join(log_dir, f"{split}_tsne.pdf")
+
+        fig.savefig(out_fig)
 
         return power
 
@@ -356,9 +422,10 @@ class TaskClassifier(BaseClassifier):
 
         y_p_sm, y_q_sm = self._shared_epoch_end(outputs, "val")
 
+        # TODO here default replace=True is used, should this be False?
         # log power for sample size=100
         power, type_1_err = repeated_test(
-            y_p_sm, y_q_sm, mass_ks_test, num_reps=100, alpha=0.05, sample_size=100
+            y_p_sm, y_q_sm, mass_ks_test, num_reps=100, alpha=0.05, sample_size=100, replace=False
         )
 
         self.log(f"val/power", power, on_epoch=True, prog_bar=True, logger=True)
@@ -387,6 +454,46 @@ class TaskClassifier(BaseClassifier):
 
         self._shared_subgroup_analysis(outputs, split)
 
+        log_dir = self.logger.log_dir
+
+        # TODO stack feature reps into one array
+        feat_p = torch.cat([x["feat_p"] for x in outputs]).detach().cpu().numpy()
+        feat_q = torch.cat([x["feat_q"] for x in outputs]).detach().cpu().numpy()
+
+        out_arr_p = os.path.join(log_dir, f"{split}_feat_p.npy")
+        with open(out_arr_p, "wb") as f:
+            np.save(f, feat_p)
+
+        feat = np.concatenate((feat_p, feat_q))
+        out_arr_p = os.path.join(log_dir, f"{split}_feat.npy")
+        with open(out_arr_p, "wb") as f:
+            np.save(f, feat)
+
+        # make labels (p, q)
+
+        # labels_p = np.ones(feat_p.shape[0])
+        # labels_q = np.zeros(feat_q.shape[0])
+        # y = np.concatenate([labels_p, labels_q], 0).squeeze()
+
+        labels_p = ["P"] * feat_p.shape[0]
+        labels_q = ["Q"] * feat_q.shape[0]
+        y = labels_p + labels_q
+
+        # TODO t-sne
+
+        # TODO useful tsne parameters
+        tsne = TSNE()
+        embedding = tsne.fit(feat)
+
+        # TODO meaningful labels (P, Q)
+        fig, ax = plot(embedding, y)
+
+        self.logger.experiment.add_figure(f"{split}/tsne", fig, self.trainer.global_step)
+
+        out_fig = os.path.join(log_dir, f"{split}_tsne.pdf")
+
+        fig.savefig(out_fig)
+
         return y_p_sm, y_q_sm
 
     def _shared_test_step(self, batch, batch_idx):
@@ -410,6 +517,10 @@ class TaskClassifier(BaseClassifier):
         outputs["y_q_sm"] = y_q_sm
 
         outputs["m_p"] = batch["p"][2]
+
+        # feature extraction for t-sne
+        outputs["feat_p"] = self.get_features(x_p)
+        outputs["feat_q"] = self.get_features(x_q)
 
         return outputs
 
@@ -602,9 +713,13 @@ class DomainClassifier(BaseClassifier):
 
     def validation_epoch_end(self, outputs):
 
-        sample_p, sample_q, witness_fig = self._shared_epoch_end(outputs)
+        sample_p, sample_q, witness_fig = self._shared_epoch_end(outputs, "val")
 
         # TODO report both binary and logits result
+
+        # TODO why is this only size 32?? 2 batches??
+        print(sample_p.shape)
+        print(sample_q.shape)
 
         power, type_1_err = repeated_test(
             sample_p,
@@ -642,7 +757,7 @@ class DomainClassifier(BaseClassifier):
 
     def test_epoch_end(self, outputs):
 
-        sample_p, sample_q, witness_fig = self._shared_epoch_end(outputs)
+        sample_p, sample_q, witness_fig = self._shared_epoch_end(outputs, "test")
 
         self.logger.experiment.add_figure(
             "test/witness_examples", witness_fig, self.trainer.global_step
@@ -664,7 +779,10 @@ class DomainClassifier(BaseClassifier):
 
     def _shared_test_step(self, batch, batch_idx) -> None:
 
-        prepped_batch = self.prepare_batch_data(batch["p"][0], batch["q"][0])
+        x_p = batch["p"][0]
+        x_q = batch["q"][0]
+
+        prepped_batch = self.prepare_batch_data(x_p, x_q)
 
         x, y = prepped_batch
         y_logits = self.model(x)
@@ -678,9 +796,13 @@ class DomainClassifier(BaseClassifier):
         outputs["y"] = y
         outputs["y_logits"] = y_logits
 
+        # for t-sne visualisation
+        outputs["feat_p"] = self.get_features(x_p)
+        outputs["feat_q"] = self.get_features(x_q)
+
         return outputs
 
-    def _shared_epoch_end(self, outputs):
+    def _shared_epoch_end(self, outputs, split):
 
         batch_size = outputs[0]["y"].shape[0]
 
@@ -720,6 +842,45 @@ class DomainClassifier(BaseClassifier):
             coord_img = ax.transData.transform(example_coord)
 
             figimg = ax.figure.figimage(img, *coord_img)
+
+        log_dir = self.logger.log_dir
+
+        # TODO stack feature reps into one array
+        feat_p = torch.cat([x["feat_p"] for x in outputs]).detach().cpu().numpy()
+        feat_q = torch.cat([x["feat_q"] for x in outputs]).detach().cpu().numpy()
+
+        out_arr_p = os.path.join(log_dir, f"{split}_feat_p.npy")
+        with open(out_arr_p, "wb") as f:
+            np.save(f, feat_p)
+
+        feat = np.concatenate((feat_p, feat_q))
+        out_arr_p = os.path.join(log_dir, f"{split}_feat.npy")
+        with open(out_arr_p, "wb") as f:
+            np.save(f, feat)
+
+        # make labels (p, q)
+
+        # labels_p = np.ones(feat_p.shape[0])
+        # labels_q = np.zeros(feat_q.shape[0])
+        # y = np.concatenate([labels_p, labels_q], 0).squeeze()
+
+        labels_p = ["P"] * feat_p.shape[0]
+        labels_q = ["Q"] * feat_q.shape[0]
+        y = labels_p + labels_q
+
+        # TODO t-sne
+
+        # TODO useful tsne parameters
+        tsne = TSNE()
+        embedding = tsne.fit(feat)
+
+        fig_tsne, ax = plot(embedding, y)
+
+        self.logger.experiment.add_figure(f"{split}/tsne", fig_tsne, self.trainer.global_step)
+
+        out_fig = os.path.join(log_dir, f"{split}_tsne.pdf")
+
+        fig_tsne.savefig(out_fig)
 
         return sample_p, sample_q, fig
 

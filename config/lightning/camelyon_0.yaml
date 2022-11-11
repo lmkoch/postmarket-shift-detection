@@ -3,33 +3,29 @@ dataset:
     # dataset
     ds:
         basic_preproc:
-            img_size: 512
-            mean: [0.425753653049469, 0.29737451672554016, 0.21293757855892181] # 'auto' or a list of three numbers for RGB
-            std: [0.27670302987098694, 0.20240527391433716, 0.1686241775751114] # 'auto' or a list of three numbers for RGB
-        data_augmentation:  # available operations are list in 'data_augmentation_args' below
+            img_size: 96
+            mean: [0.485, 0.456, 0.406]
+            std: [0.229, 0.224, 0.225]
+        data_augmentation:   # available operations are list in 'data_augmentation_args' below
             - random_crop
             - horizontal_flip
             - vertical_flip
             - color_distortion
             - rotation
         p:
-            dataset: 'eyepacs'
-            # data_root: '/home/lkoch/mnt/cin_root/data/eyepacs/'
-            data_root: '/mnt/qb/eyepacs'
-            # data_root: '/gpfs01/berens/data/data/eyepacs'
+            dataset: 'camelyon'
+            # data_root: '/gpfs01/berens/user/lkoch/data'
+            data_root: './data/download_complete'
+            # data_root: '~/data'
             subset_params:
-                # session_image_quality: ["Good", "Excellent"]
-                diagnoses_comorbidities: [True, False]
-                # session_image_quality: ["Adequate", "Good", "Excellent"]
+                center: [0, 1, 2, 3, 4]
         q:
-            dataset: 'eyepacs'
-            data_root: '/mnt/qb/eyepacs'
-            # data_root: '/home/lkoch/mnt/cin_root/data/eyepacs/'
-            # data_root: '/gpfs01/berens/data/data/eyepacs'
+            dataset: 'camelyon'
+            # data_root: '/gpfs01/berens/user/lkoch/data'
+            data_root: './data/download_complete'
+            # data_root: '~/data'
             subset_params:
-                # session_image_quality: ["Adequate"]
-                diagnoses_comorbidities: [True]
-                # session_image_quality: ["Adequate", "Good", "Excellent"]
+                center: [0]
         data_augmentation_args:
           horizontal_flip:
             prob: 0.5
@@ -58,16 +54,17 @@ dataset:
             kernel_size: 7
             sigma: 0.5
           value_fill: 0 # NOT a data augmentation operation. pixel fill value for the area outside the image
+    # dataloader
     dl:
         batch_size: 16
         p:
             use_sampling: False
-            sampling_by_variable: 'targets'
-            sampling_weights: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+            sampling_by_variable: 'hospitals'
+            sampling_weights: [1, 1, 1, 1, 1]
         q:
             use_sampling: False
-            sampling_by_variable: 'targets'
-            sampling_weights: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+            sampling_by_variable: 'hospitals'
+            sampling_weights: [0, 0, 1, 0, 0]
         num_workers: 4
         pin_memory: True
 mmd:
@@ -76,16 +73,16 @@ mmd:
         in_channels: 3
         loss_type: 'mmd2'
         loss_lambda: 10**(-6)
-        feature_extractor: 'resnet50'
+        feature_extractor: 'liu' # 'resnet50' # 
         optim_config:
             optimizer: ADAM # SGD / ADAM
-            learning_rate: 0.0001 # initial learning rate
+            learning_rate: 1.e-5 # initial learning rate
             momentum: 0.9 # only for SGD. set to 0 to disable momentum
             nesterov: True # only for SGD.
             weight_decay: 0.0005 # set to 0 to disable weight decay
             lr_scheduler: True    
     trainer:
-        epochs: 10    
+        epochs: 50 
 domain_classifier:
     model:
         arch: 'resnet50'
@@ -93,17 +90,18 @@ domain_classifier:
         n_outputs: 2
         loss_type: "cross_entropy" # mean_squared_error
         optim_config:
-            optimizer: SGD # SGD / ADAM
-            learning_rate: 0.001 # initial learning rate
+            optimizer: ADAM # SGD / ADAM
+            learning_rate: 1.e-6 # initial learning rate
             momentum: 0.9 # only for SGD. set to 0 to disable momentum
             nesterov: True # only for SGD.
             weight_decay: 0.0005 # set to 0 to disable weight decay
             lr_scheduler: True        
     trainer:
-        epochs: 25                                                       # Adapt depending on dataset
+        epochs: 10                                                      # Adapt depending on dataset
     eval:
         n_permute: 100
         alpha: 0.05
+        use_tensorboard: True
         n_test_reps: 10
         eval_interval_globalstep: 300
         num_eval_batches: 30
@@ -112,14 +110,17 @@ task_classifier:
     model:
         arch: 'resnet50'
         in_channels: 3    
-        n_outputs: 5 
+        n_outputs: 2 
         loss_type: "cross_entropy" # mean_squared_error
         optim_config:
-            optimizer: SGD # SGD / ADAM
-            learning_rate: 0.001 # initial learning rate
+            optimizer: ADAM # SGD / ADAM
+            learning_rate: 1.e-6 # initial learning rate
             momentum: 0.9 # only for SGD. set to 0 to disable momentum
             nesterov: True # only for SGD.
             weight_decay: 0.0005 # set to 0 to disable weight decay
             lr_scheduler: True
     trainer:
-        epochs: 25                                                       # Adapt depending on dataset
+        epochs: 15                                                       # Adapt depending on dataset
+
+
+
