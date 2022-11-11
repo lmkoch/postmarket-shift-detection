@@ -76,7 +76,7 @@ mmd:
         feature_extractor: 'liu' # 'resnet50' # 
         optim_config:
             optimizer: ADAM # SGD / ADAM
-            learning_rate: 1.e-5 # initial learning rate
+            learning_rate: 1.e-4 # initial learning rate
             momentum: 0.9 # only for SGD. set to 0 to disable momentum
             nesterov: True # only for SGD.
             weight_decay: 0.0005 # set to 0 to disable weight decay
@@ -120,7 +120,7 @@ task_classifier:
             weight_decay: 0.0005 # set to 0 to disable weight decay
             lr_scheduler: True
     trainer:
-        epochs: 15                                                       # Adapt depending on dataset
+        epochs: 25                                                       # Adapt depending on dataset
 
 
 
