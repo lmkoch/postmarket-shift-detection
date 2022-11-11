@@ -139,7 +139,7 @@ mmd:
       optimizer: ADAM
       weight_decay: 0.0005
   trainer:
-    epochs: 10
+    epochs: 25
 task_classifier:
   model:
     arch: resnet50

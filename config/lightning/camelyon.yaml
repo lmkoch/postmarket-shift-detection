@@ -98,7 +98,7 @@ domain_classifier:
             weight_decay: 0.0005 # set to 0 to disable weight decay
             lr_scheduler: True        
     trainer:
-        epochs: 10                                                      # Adapt depending on dataset
+        epochs: 25                                                      # Adapt depending on dataset
     eval:
         n_permute: 100
         alpha: 0.05
