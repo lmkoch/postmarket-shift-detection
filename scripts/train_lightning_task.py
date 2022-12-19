@@ -152,10 +152,94 @@ if __name__ == "__main__":
         default=False,
         help="Run on CPU",
     )
+    parser.add_argument(
+        "--img_size",
+        action="store",
+        type=int,
+        help="Input image size. Data will be resized to this resolution",
+    )
+    parser.add_argument(
+        "--batch_size",
+        action="store",
+        type=int,
+        help="Batch size",
+    )
+    parser.add_argument(
+        "--subset_p_erase",
+        action="store",
+        type=float,
+        help="List of subgroups to include",
+    )
+    parser.add_argument(
+        "--subset_comorbid",
+        nargs="+",
+        type=bool,
+        help="List of subgroups to include",
+    )
+    parser.add_argument(
+        "--subset_qual",
+        nargs="+",
+        type=str,
+        help="List of subgroups to include",
+    )
+    parser.add_argument(
+        "--subset_sex",
+        nargs="+",
+        type=str,
+        help="List of subgroups to include",
+    )
+    parser.add_argument(
+        "--subset_ethnicity",
+        nargs="+",
+        type=str,
+        help="List of subgroups to include",
+    )
+    parser.add_argument(
+        "--subset_center",
+        nargs="+",
+        type=int,
+        help="List of subgroups to include",
+    )
+    # parser.add_argument(
+    #     "--subset_comorbid",
+    #     nargs="+",
+    #     type=bool,
+    #     help="List of subgroups to include",
+    # )
     parser.add_argument("--no-slurm", dest="slurm", action="store_false", default=False)
     args = parser.parse_args()
 
     params = load_config(args.config_file)
+
+    # allow overriding params from command line
+    if args.img_size is not None:
+        params["dataset"]["ds"]["basic_preproc"]["img_size"] = args.img_size
+        params["mmd"]["model"]["img_size"] = args.img_size
+
+    if args.batch_size is not None:
+        params["dataset"]["dl"]["batch_size"] = args.batch_size
+
+    if args.subset_p_erase is not None:
+        params["dataset"]["ds"]["q"]["subset_params"]["p_erase"] = args.subset_p_erase
+
+    if args.subset_comorbid is not None:
+        params["dataset"]["ds"]["q"]["subset_params"][
+            "diagnoses_comorbidities"
+        ] = args.subset_comorbid
+
+    if args.subset_qual is not None:
+        params["dataset"]["ds"]["q"]["subset_params"]["session_image_quality"] = args.subset_qual
+
+    if args.subset_sex is not None:
+        params["dataset"]["ds"]["q"]["subset_params"]["patient_gender"] = args.subset_sex
+
+    if args.subset_ethnicity is not None:
+        params["dataset"]["ds"]["q"]["subset_params"]["patient_ethnicity"] = args.subset_ethnicity
+
+    if args.subset_center is not None:
+        params["dataset"]["ds"]["q"]["subset_params"]["center"] = args.subset_center
+
+    # TODO: eyepacs remaining categories
 
     # mapping of correct config file chapter:
     param_category = {"mmdd": "mmd", "c2st": "domain_classifier", "muks": "task_classifier"}
@@ -287,22 +371,22 @@ if __name__ == "__main__":
 
     if args.test_method in ["c2st", "mmdd"]:
 
-        import glob
+        # import glob
 
-        log_dir = os.path.join(
-            artifacts_dir,
-            hash_string,
-        )
+        # log_dir = os.path.join(
+        #     artifacts_dir,
+        #     hash_string,
+        # )
 
-        versions = os.listdir(log_dir)
-        checkpoint_dir = os.path.join(log_dir, versions[-1], "checkpoints")
+        # versions = os.listdir(log_dir)
+        # checkpoint_dir = os.path.join(log_dir, versions[-1], "checkpoints")
 
-        checkpoint_path = glob.glob(f"{checkpoint_dir}/best-loss-*.ckpt")[0]
+        # checkpoint_path = glob.glob(f"{checkpoint_dir}/best-loss-*.ckpt")[0]
 
-        if len(checkpoint_path) > 0:
-            checkpoint_path = checkpoint_path[0]
-        else:
-            print(f"No checkpoint available for exp: {log_dir}")
+        # if len(checkpoint_path) > 0:
+        #     checkpoint_path = checkpoint_path[0]
+        # else:
+        #     print(f"No checkpoint available for exp: {log_dir}")
 
         # TODO: if train, fit the model. Else: load latest checkpoint
 
@@ -313,7 +397,8 @@ if __name__ == "__main__":
 
         artifacts_path = {
             "eyepacs": "experiments/endspurt/eyepacs_comorb/task_classifier/ed38371b2586ab224c4c55642b443b9b/version_0/checkpoints/best-loss-epoch=15-step=78112.ckpt",
-            "camelyon": "experiments/endspurt/camelyon/task_smallevents/task_classifier/1bd08d2856418bd6056d24f58671ec86/version_0/checkpoints/best-loss-epoch=13-step=248682.ckpt",
+            # "camelyon": "experiments/endspurt/camelyon/task_smallevents/task_classifier/1bd08d2856418bd6056d24f58671ec86/version_0/checkpoints/best-loss-epoch=13-step=248682.ckpt",
+            "camelyon": "experiments/nov/task/camelyon/muks/ae9d742a0d9fd635b06dd96a1afd35fe/version_0/checkpoints/best-loss-epoch=17-step=319734.ckpt",
             "mnist": "experiments/oct/task/mnist/muks/0f2ab3ce9f01eb2f5c230e2c2aa2f99f/version_0/checkpoints/best-loss-epoch=13-step=10934.ckpt",
         }
 

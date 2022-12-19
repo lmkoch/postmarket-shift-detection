@@ -352,22 +352,22 @@ class MaxKernel(BaseClassifier):
         labels_q = ["Q"] * feat_q.shape[0]
         y = labels_p + labels_q
 
-        # TODO t-sne
-        from openTSNE import TSNE
-        from utils.tsne_utils import plot
+        # # TODO t-sne
+        # from openTSNE import TSNE
+        # from utils.tsne_utils import plot
 
-        # TODO useful tsne parameters
-        tsne = TSNE()
-        embedding = tsne.fit(feat)
+        # # TODO useful tsne parameters
+        # tsne = TSNE()
+        # embedding = tsne.fit(feat)
 
-        # TODO meaningful labels (P, Q)
-        fig, ax = plot(embedding, y)
+        # # TODO meaningful labels (P, Q)
+        # fig, ax = plot(embedding, y)
 
-        self.logger.experiment.add_figure(f"{split}/tsne", fig, self.trainer.global_step)
+        # self.logger.experiment.add_figure(f"{split}/tsne", fig, self.trainer.global_step)
 
-        out_fig = os.path.join(log_dir, f"{split}_tsne.pdf")
+        # out_fig = os.path.join(log_dir, f"{split}_tsne.pdf")
 
-        fig.savefig(out_fig)
+        # fig.savefig(out_fig)
 
         return power
 
@@ -481,18 +481,18 @@ class TaskClassifier(BaseClassifier):
 
         # TODO t-sne
 
-        # TODO useful tsne parameters
-        tsne = TSNE()
-        embedding = tsne.fit(feat)
+        # # TODO useful tsne parameters
+        # tsne = TSNE()
+        # embedding = tsne.fit(feat)
 
-        # TODO meaningful labels (P, Q)
-        fig, ax = plot(embedding, y)
+        # # TODO meaningful labels (P, Q)
+        # fig, ax = plot(embedding, y)
 
-        self.logger.experiment.add_figure(f"{split}/tsne", fig, self.trainer.global_step)
+        # self.logger.experiment.add_figure(f"{split}/tsne", fig, self.trainer.global_step)
 
-        out_fig = os.path.join(log_dir, f"{split}_tsne.pdf")
+        # out_fig = os.path.join(log_dir, f"{split}_tsne.pdf")
 
-        fig.savefig(out_fig)
+        # fig.savefig(out_fig)
 
         return y_p_sm, y_q_sm
 
@@ -870,17 +870,17 @@ class DomainClassifier(BaseClassifier):
 
         # TODO t-sne
 
-        # TODO useful tsne parameters
-        tsne = TSNE()
-        embedding = tsne.fit(feat)
+        # # TODO useful tsne parameters
+        # tsne = TSNE()
+        # embedding = tsne.fit(feat)
 
-        fig_tsne, ax = plot(embedding, y)
+        # fig_tsne, ax = plot(embedding, y)
 
-        self.logger.experiment.add_figure(f"{split}/tsne", fig_tsne, self.trainer.global_step)
+        # self.logger.experiment.add_figure(f"{split}/tsne", fig_tsne, self.trainer.global_step)
 
-        out_fig = os.path.join(log_dir, f"{split}_tsne.pdf")
+        # out_fig = os.path.join(log_dir, f"{split}_tsne.pdf")
 
-        fig_tsne.savefig(out_fig)
+        # fig_tsne.savefig(out_fig)
 
         return sample_p, sample_q, fig
 

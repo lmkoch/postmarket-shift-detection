@@ -82,13 +82,13 @@ mmd:
         epochs: 25    
 domain_classifier:
     model:
-        arch: 'resnet50'
+        arch: 'resnet18'
         in_channels: 1                                                  # Adapt depending on dataset
         n_outputs: 2
         loss_type: "cross_entropy" # mean_squared_error
         optim_config:
-            optimizer: ADAM # SGD / ADAM
-            learning_rate: 1.e-5 # initial learning rate
+            optimizer: SGD # SGD / ADAM
+            learning_rate: 0.001 # initial learning rate
             momentum: 0.9 # only for SGD. set to 0 to disable momentum
             nesterov: True # only for SGD.
             weight_decay: 0.0005 # set to 0 to disable weight decay
