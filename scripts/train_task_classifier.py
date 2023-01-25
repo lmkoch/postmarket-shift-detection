@@ -43,7 +43,7 @@ def sbatch_build_submit(job_name, slurm_log_dir, argv):
         sbatch_file.writelines("#SBATCH --ntasks=1\n")
         sbatch_file.writelines("#SBATCH --time=3-0\n")
         sbatch_file.writelines("#SBATCH --gres=gpu:1\n")
-        sbatch_file.writelines("#SBATCH --mem=120G\n")
+        # sbatch_file.writelines("#SBATCH --mem=120G\n")
         sbatch_file.writelines("#SBATCH --cpus-per-task=8\n")
         sbatch_file.writelines("#SBATCH --mail-type=END\n")
         sbatch_file.writelines("#SBATCH --mail-user=lisa.koch@uni-tuebingen.de\n")
@@ -153,10 +153,19 @@ if __name__ == "__main__":
         default=False,
         help="Run on CPU",
     )
+    parser.add_argument(
+        "--train_data_frac",
+        action="store",
+        type=float,
+        help="Fraction of data to use (for ablation). Different from debug option!",
+    )
     parser.add_argument("--no-slurm", dest="slurm", action="store_false", default=False)
     args = parser.parse_args()
 
     params = load_config(args.config_file)
+
+    # TODO make sure this works
+    params["dataset"]["ds"]["data_frac"] = args.train_data_frac
 
     # mapping of correct config file chapter:
     param_category = {"mmdd": "mmd", "c2st": "domain_classifier", "muks": "task_classifier"}

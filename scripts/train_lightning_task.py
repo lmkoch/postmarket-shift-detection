@@ -43,7 +43,7 @@ def sbatch_build_submit(job_name, slurm_log_dir, argv):
         sbatch_file.writelines("#SBATCH --ntasks=1\n")
         sbatch_file.writelines("#SBATCH --time=3-0\n")
         sbatch_file.writelines("#SBATCH --gres=gpu:1\n")
-        sbatch_file.writelines("#SBATCH --mem=120G\n")
+        # sbatch_file.writelines("#SBATCH --mem=60G\n")
         sbatch_file.writelines("#SBATCH --cpus-per-task=8\n")
         sbatch_file.writelines("#SBATCH --mail-type=END\n")
         sbatch_file.writelines("#SBATCH --mail-user=lisa.koch@uni-tuebingen.de\n")
@@ -141,6 +141,12 @@ if __name__ == "__main__":
         help="Fraction of data to use (for debug purposes)",
     )
     parser.add_argument(
+        "--train_data_frac",
+        action="store",
+        type=float,
+        help="Fraction of data to use (for ablation). Different from debug option!",
+    )
+    parser.add_argument(
         "--slurm",
         action="store_true",
         default=False,
@@ -157,6 +163,25 @@ if __name__ == "__main__":
         action="store",
         type=int,
         help="Input image size. Data will be resized to this resolution",
+    )
+    parser.add_argument(
+        "--mmd_feature_extractor",
+        action="store",
+        type=str,
+        help="MMD backbone (liu or resnet50)",
+    )
+    parser.add_argument(
+        "--data_aug",
+        action="store_true",
+        default=None,
+        help="override data augmentation settings (yes/no)",
+    )
+    parser.add_argument(
+        "--no_data_aug",
+        action="store_false",
+        default=None,
+        dest="data_aug",
+        help="override data augmentation settings (yes/no)",
     )
     parser.add_argument(
         "--batch_size",
@@ -218,6 +243,22 @@ if __name__ == "__main__":
 
     if args.batch_size is not None:
         params["dataset"]["dl"]["batch_size"] = args.batch_size
+
+    params["dataset"]["ds"]["data_frac"] = args.train_data_frac
+
+    if args.mmd_feature_extractor is not None:
+        params["mmd"]["model"]["feature_extractor"] = args.mmd_feature_extractor
+
+    if args.data_aug:
+        params["dataset"]["ds"]["data_augmentation"] = [
+            "random_crop",
+            "horizontal_flip",
+            "vertical_flip",
+            "color_distortion",
+            "rotation",
+        ]
+    elif args.data_aug == False:
+        params["dataset"]["ds"]["data_augmentation"] = []
 
     if args.subset_p_erase is not None:
         params["dataset"]["ds"]["q"]["subset_params"]["p_erase"] = args.subset_p_erase
@@ -396,7 +437,8 @@ if __name__ == "__main__":
     elif args.test_method == "muks":
 
         artifacts_path = {
-            "eyepacs": "experiments/endspurt/eyepacs_comorb/task_classifier/ed38371b2586ab224c4c55642b443b9b/version_0/checkpoints/best-loss-epoch=15-step=78112.ckpt",
+            "eyepacs": "experiments/task/eyepacs/muks/ed38371b2586ab224c4c55642b443b9b/version_0/checkpoints/best-loss-epoch=20-step=102522.ckpt",
+            # "eyepacs": "experiments/archive/endspurt/.../ed38371b2586ab224c4c55642b443b9b/version_0/checkpoints/best-loss-epoch=15-step=78112.ckpt",
             # "camelyon": "experiments/endspurt/camelyon/task_smallevents/task_classifier/1bd08d2856418bd6056d24f58671ec86/version_0/checkpoints/best-loss-epoch=13-step=248682.ckpt",
             "camelyon": "experiments/nov/task/camelyon/muks/ae9d742a0d9fd635b06dd96a1afd35fe/version_0/checkpoints/best-loss-epoch=17-step=319734.ckpt",
             "mnist": "experiments/oct/task/mnist/muks/0f2ab3ce9f01eb2f5c230e2c2aa2f99f/version_0/checkpoints/best-loss-epoch=13-step=10934.ckpt",
@@ -404,7 +446,22 @@ if __name__ == "__main__":
 
         # TODO TEST
 
-        model = module.load_from_checkpoint(artifacts_path[dataset_type])
+        eyepacs_smaller_train_data = {
+            "1": artifacts_path["eyepacs"],
+            "0.5": "experiments/eyepacs/task_eyepacs_data_frac/muks/20bf3822ef0dedf683189f4d10376047/version_0/checkpoints/best-loss-epoch=10-step=26851.ckpt",
+            "0.1": "experiments/eyepacs/task_eyepacs_data_frac/muks/7acfe952ca2b44df74a70db987ffe90e/version_0/checkpoints/best-loss-epoch=17-step=8784.ckpt",
+            "0.01": "experiments/eyepacs/task_eyepacs_data_frac/muks/d478a4d44fcb7f2f19e37fd3cdf3a0af/version_0/checkpoints/best-loss-epoch=24-step=1200.ckpt",
+        }
+
+        params["dataset"]["ds"]["data_frac"] = args.train_data_frac
+
+        if dataset_type == "eyepacs" and params["dataset"]["ds"]["data_frac"] < 1:
+            model_path = eyepacs_smaller_train_data[str(params["dataset"]["ds"]["data_frac"])]
+            print(f"Load task model from: {model_path}")
+        else:
+            model_path = artifacts_path[dataset_type]
+
+        model = module.load_from_checkpoint(model_path, strict=False)
 
     ###############################################################################################################################
     # Run Eval:
@@ -415,7 +472,7 @@ if __name__ == "__main__":
     if args.test_method in ["c2st", "mmdd"]:
         ckpt_path = "best"
     else:
-        ckpt_path = artifacts_path[dataset_type]
+        ckpt_path = model_path
         # ckpt_path = None
 
     eval(trainer, model, ckpt_path, params, sample_sizes=[10, 30, 50, 100, 200, 500])

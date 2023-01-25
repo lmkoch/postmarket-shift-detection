@@ -14,7 +14,8 @@ def stderr_proportion(p, n):
 def set_rcParams():
 
     sns.set_context("paper")
-    sns.set_style("whitegrid")
+    sns.set_style("white")
+    # sns.set_style("whitegrid")
     sns.color_palette("dark")
 
     plt.rcParams["axes.linewidth"] = 0.7
@@ -38,6 +39,12 @@ def set_rcParams():
     plt.rcParams["font.family"] = "Arial"
     plt.rcParams["mathtext.fontset"] = "cm"
     plt.rcParams["figure.dpi"] = 120  # only affects the notebook
+
+    COLOR = "black"
+    plt.rcParams["text.color"] = COLOR
+    plt.rcParams["axes.labelcolor"] = COLOR
+    plt.rcParams["xtick.color"] = COLOR
+    plt.rcParams["ytick.color"] = COLOR
 
     # plt.rcParams['text.usetex'] = True
     # plt.rcParams['text.latex.preamble'] = r'\usepackage{amsfonts}'

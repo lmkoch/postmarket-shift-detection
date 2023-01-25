@@ -25,6 +25,8 @@ def dataset_fn(params_dict, replacement=False, num_samples=None) -> Dict:
         data_loaders: containing "train", "validation" and "test" data loaders
     """
 
+    # FIXME data_frac should be in params_dict
+
     required_keys = ["ds", "dl"]
 
     for ele in required_keys:
@@ -45,9 +47,12 @@ def dataset_fn(params_dict, replacement=False, num_samples=None) -> Dict:
             params_ds["basic_preproc"],
             params_ds["data_augmentation"],
             params_ds["data_augmentation_args"],
+            params_ds["data_frac"],  # TODO this is new, untested! only works for eyepacs
         )
 
         for split in ["train", "val", "test"]:
+
+            print(dataset[split])
 
             dataloader[split][p_q] = get_dataloader(
                 dataset[split],
@@ -75,7 +80,10 @@ def get_dataset(
     basic_preproc_config,
     augmentations,
     augmentation_config,
+    data_frac=None,
 ):
+
+    # FIXME data_frac is only implemented in EyePacs Dataset
 
     train_transform, test_transform = data_transforms(
         basic_preproc_config, augmentations, augmentation_config
@@ -139,8 +147,17 @@ def get_dataset(
 
             transform = train_transform if split == "train" else test_transform
 
+            # data frac is only reduced in training
+            frac = data_frac
+            if split == "test":
+                frac = None
+
             dataset[split] = EyepacsDataset(
-                data_root=data_root, split=split, transform=transform, subset_params=subset_params
+                data_root=data_root,
+                split=split,
+                transform=transform,
+                subset_params=subset_params,
+                data_frac=frac,
             )
 
     else:
@@ -303,6 +320,7 @@ class EyepacsDataset(VisionDataset):
         split="train",
         subset_params=None,
         use_prepared_splits=True,
+        data_frac=None,
     ):
         super(EyepacsDataset, self).__init__(
             root, transform=transform, target_transform=target_transform
@@ -398,6 +416,10 @@ class EyepacsDataset(VisionDataset):
         self._metadata_df["diagnoses_comorbidities"] = (
             self._metadata_df[co_diagnoses].sum(axis=1) > 0
         )
+
+        # TODO allow reduced dataset size: randomly keep fraction of rows
+        if data_frac is not None:
+            self._metadata_df = self._metadata_df.sample(frac=data_frac)
 
         # allow subset query here
 
