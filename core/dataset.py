@@ -37,6 +37,8 @@ def dataset_fn(params_dict, replacement=False, num_samples=None) -> Dict:
     params_ds = params_dict["ds"]
     params_dl = params_dict["dl"]
 
+    params_ds.setdefault("data_frac", 1)
+
     dataloader = {"train": {}, "val": {}, "test": {}}
     for p_q in ["p", "q"]:
 

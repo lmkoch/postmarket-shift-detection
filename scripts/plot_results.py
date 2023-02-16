@@ -473,6 +473,8 @@ def plot_results(eval_dir, exp_dirs, subset_spec_column, experiment_name):
     # method-specific columns are not compatible - but doesn't matter
     results = pd.concat([v for k, v in df.items()])
 
+    # TODO: identify image size here as well
+
     # TODO: convert subset specification to homogeneous form (ideally string), from:
     #       - list
     #       - scalar
@@ -495,7 +497,8 @@ def plot_results(eval_dir, exp_dirs, subset_spec_column, experiment_name):
         y="power",
         hue="method",
         hue_order=methods,
-        style="subgroup_id",
+        # style="subgroup_id",
+        style="dataset_ds_basic_preproc_img_size",
         markers=True,
         dashes=False,
         ax=row_ax,
@@ -508,7 +511,8 @@ def plot_results(eval_dir, exp_dirs, subset_spec_column, experiment_name):
         y="type_1err",
         hue="method",
         hue_order=methods,
-        style="subgroup_id",
+        # style="subgroup_id",
+        style="dataset_ds_basic_preproc_img_size",
         markers=True,
         dashes=False,
         ax=ax[1],
@@ -647,70 +651,76 @@ if __name__ == "__main__":
         action="store",
         type=str,
         help="Results directory (will be created if it does not exist)",
-        default="./experiments/oct/eval",
+        default="./experiments/jan23/eval",
     )
-    parser.add_argument("--run_hyperparam", action="store", type=bool, help="", default=True)
     args = parser.parse_args()
 
-    generate_latex_subgroup_table(args.eval_dir)
+    # generate_latex_subgroup_table(args.eval_dir)
 
     test_types = ["muks", "c2st", "mmdd"]
 
-    #####################################################################################3
-    # MNIST
+    # #####################################################################################3
+    # # MNIST
 
-    details = {
-        "exp_type": "mnist",
-        "subset_spec_column": "dataset_ds_q_subset_params_p_erase",
-        "eval_string": "mnist_corrupt",
-    }
+    # details = {
+    #     "exp_type": "mnist",
+    #     "subset_spec_column": "dataset_ds_q_subset_params_p_erase",
+    #     "eval_string": "mnist_corrupt",
+    # }
 
-    exp_type = "mnist"
+    # exp_type = "mnist"
 
-    exp_dirs = {ele: f"./experiments/oct/{exp_type}/{ele}" for ele in test_types}
+    # exp_dirs = {ele: f"./experiments/oct/{exp_type}/{ele}" for ele in test_types}
 
-    # specific to camelyon
-    subset_spec_column = "dataset_ds_q_subset_params_p_erase"
+    # # specific to camelyon
+    # subset_spec_column = "dataset_ds_q_subset_params_p_erase"
 
-    plot_results(args.eval_dir, exp_dirs, subset_spec_column, "mnist_corrupt")
+    # plot_results(args.eval_dir, exp_dirs, subset_spec_column, "mnist_corrupt")
 
-    #####################################################################################3
-    # Camelyon
+    # #####################################################################################3
+    # # Camelyon
 
-    exp_type = "camelyon"
+    # exp_type = "camelyon"
 
-    exp_dirs = {ele: f"./experiments/oct/{exp_type}/{ele}" for ele in test_types}
+    # exp_dirs = {ele: f"./experiments/oct/{exp_type}/{ele}" for ele in test_types}
+    # exp_dirs = {ele: f"./experiments/nov/{exp_type}/{ele}" for ele in test_types}
 
-    # specific to camelyon
-    subset_spec_column = "dataset_ds_q_subset_params_center"
+    # # specific to camelyon
+    # subset_spec_column = "dataset_ds_q_subset_params_center"
 
-    plot_results(args.eval_dir, exp_dirs, subset_spec_column, "camelyon_hospitals")
+    # plot_results(args.eval_dir, exp_dirs, subset_spec_column, "camelyon_hospitals")
 
     #####################################################################################3
     # Eyepacs
 
-    exp_type = "eyepacs_comorb"
-    exp_dirs = {ele: f"./experiments/oct/{exp_type}/{ele}" for ele in test_types}
-    subset_spec_column = "dataset_ds_q_subset_params_diagnoses_comorbidities"
+    # exp_type = "eyepacs_comorb"
+    # # exp_dirs = {ele: f"./experiments/oct/{exp_type}/{ele}" for ele in test_types}
+    # exp_dirs = {
+    #     ele: f"/home/lkoch/mnt/slurm_work/exp_lightning/oct/{exp_type}/{ele}" for ele in test_types
+    # }
+    # subset_spec_column = "dataset_ds_q_subset_params_diagnoses_comorbidities"
 
-    plot_results(args.eval_dir, exp_dirs, subset_spec_column, "eyepacs_comorbidities")
+    # plot_results(args.eval_dir, exp_dirs, subset_spec_column, "eyepacs_comorbidities")
 
-    exp_type = "eyepacs_ethnicity"
-    exp_dirs = {ele: f"./experiments/oct/{exp_type}/{ele}" for ele in test_types}
-    subset_spec_column = "dataset_ds_q_subset_params_patient_ethnicity"
+    # exp_type = "eyepacs_ethnicity"
+    # exp_dirs = {ele: f"./experiments/oct/{exp_type}/{ele}" for ele in test_types}
+    # subset_spec_column = "dataset_ds_q_subset_params_patient_ethnicity"
 
-    plot_results(args.eval_dir, exp_dirs, subset_spec_column, "eyepacs_ethnicity")
+    # plot_results(args.eval_dir, exp_dirs, subset_spec_column, "eyepacs_ethnicity")
 
     exp_type = "eyepacs_gender"
-    exp_dirs = {ele: f"./experiments/oct/{exp_type}/{ele}" for ele in test_types}
+    # exp_dirs = {ele: f"./experiments/oct/{exp_type}/{ele}" for ele in test_types}
+    exp_dirs = {
+        ele: f"/home/lkoch/mnt/slurm_work/exp_lightning/oct/{exp_type}/{ele}" for ele in test_types
+    }
     subset_spec_column = "dataset_ds_q_subset_params_patient_gender"
 
     plot_results(args.eval_dir, exp_dirs, subset_spec_column, "eyepacs_gender")
 
-    exp_type = "eyepacs_quality"
-    exp_dirs = {ele: f"./experiments/oct/{exp_type}/{ele}" for ele in test_types}
-    subset_spec_column = "dataset_ds_q_subset_params_session_image_quality"
+    # exp_type = "eyepacs_quality"
+    # exp_dirs = {ele: f"./experiments/oct/{exp_type}/{ele}" for ele in test_types}
+    # subset_spec_column = "dataset_ds_q_subset_params_session_image_quality"
 
-    plot_results(args.eval_dir, exp_dirs, subset_spec_column, "eyepacs_quality")
+    # plot_results(args.eval_dir, exp_dirs, subset_spec_column, "eyepacs_quality")
 
     print("done")
