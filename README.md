@@ -2,9 +2,6 @@
 
 This is the code used in the paper "Deep Hypothesis Tests Detect Clinically Relevant Subgroup Shifts in Medical Images" (link coming soon).
 
-![image](https://drive.google.com/file/d/1utYCIwMupnieFA2veuIfE0JZ_QjN2h_o/view?usp=share_link)
-
-
 # Prerequisites
 
 * **Python environment**
@@ -36,7 +33,7 @@ For examples on how to train and evaluate models, as well as instructions for fu
 ./scripts/dispatch_experiments.sh
 ```
 
-Please note the upcoming refactoring, which will make the code easier to adapt your own environments.
+Please note the upcoming refactoring, which will make the code easier to adapt to your own environments.
 
 
 # Citation
