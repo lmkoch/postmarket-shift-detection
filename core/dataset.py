@@ -200,6 +200,9 @@ def get_dataloader(
         weights_train = balanced_weights(
             dataset, rebalance_weights=sampling_weights, balance_variable=sampling_by_variable
         )
+
+        num_samples = len(weights_train)
+
         sampler = torch.utils.data.sampler.WeightedRandomSampler(
             weights_train, num_samples=num_samples
         )

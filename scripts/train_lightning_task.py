@@ -143,6 +143,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--train_data_frac",
         action="store",
+        default=1.0,
         type=float,
         help="Fraction of data to use (for ablation). Different from debug option!",
     )
@@ -169,6 +170,12 @@ if __name__ == "__main__":
         action="store",
         type=str,
         help="MMD backbone (liu or resnet50)",
+    )
+    parser.add_argument(
+        "--c2st_arch",
+        action="store",
+        type=str,
+        help="C2ST backbone (shallow or resnet50)",
     )
     parser.add_argument(
         "--data_aug",
@@ -225,6 +232,13 @@ if __name__ == "__main__":
         type=int,
         help="List of subgroups to include",
     )
+    parser.add_argument(
+        "--subset_qual_gradual",
+        action="store",
+        type=int,
+        help="Overrepresentation factor used for Adequate image quality",
+    )
+
     # parser.add_argument(
     #     "--subset_comorbid",
     #     nargs="+",
@@ -248,6 +262,9 @@ if __name__ == "__main__":
 
     if args.mmd_feature_extractor is not None:
         params["mmd"]["model"]["feature_extractor"] = args.mmd_feature_extractor
+
+    if args.c2st_arch is not None:
+        params["domain_classifier"]["model"]["arch"] = args.c2st_arch
 
     if args.data_aug:
         params["dataset"]["ds"]["data_augmentation"] = [
@@ -279,6 +296,9 @@ if __name__ == "__main__":
 
     if args.subset_center is not None:
         params["dataset"]["ds"]["q"]["subset_params"]["center"] = args.subset_center
+
+    if args.subset_qual_gradual is not None:
+        params["dataset"]["dl"]["q"]["sampling_weights"][1] = args.subset_qual_gradual
 
     # TODO: eyepacs remaining categories
 
@@ -452,8 +472,6 @@ if __name__ == "__main__":
             "0.1": "experiments/eyepacs/task_eyepacs_data_frac/muks/7acfe952ca2b44df74a70db987ffe90e/version_0/checkpoints/best-loss-epoch=17-step=8784.ckpt",
             "0.01": "experiments/eyepacs/task_eyepacs_data_frac/muks/d478a4d44fcb7f2f19e37fd3cdf3a0af/version_0/checkpoints/best-loss-epoch=24-step=1200.ckpt",
         }
-
-        params["dataset"]["ds"]["data_frac"] = args.train_data_frac
 
         if dataset_type == "eyepacs" and params["dataset"]["ds"]["data_frac"] < 1:
             model_path = eyepacs_smaller_train_data[str(params["dataset"]["ds"]["data_frac"])]

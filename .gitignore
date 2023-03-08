@@ -1,3 +1,7 @@
+*.png
+*.pdf
+*.npy
+*.tar.gz
 *.sif
 *.pyc
 *.sh

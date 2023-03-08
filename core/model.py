@@ -110,12 +110,16 @@ class BaseClassifier(pl.LightningModule):
             )
             self.model.fc = nn.Linear(self.model.fc.in_features, n_outputs)
 
+        elif arch == "shallow":
+
+            self.model = ShallowNet(n_channels=in_channels, n_outputs=n_outputs)
+
         else:
             raise NotImplementedError(f"Model not implemented: {arch}")
 
         # need this for visualising penultimate layer later
-        layers = list(self.model.children())[:-1]
-        self.feature_extractor = nn.Sequential(*layers)
+        # layers = list(self.model.children())[:-1]
+        # self.feature_extractor = nn.Sequential(*layers)
 
         self.optim_params = optim_config
 
@@ -126,9 +130,9 @@ class BaseClassifier(pl.LightningModule):
         logits = self.model(x)
         return logits
 
-    def get_features(self, x):
-        x = self.feature_extractor(x).flatten(1)
-        return x
+    # def get_features(self, x):
+    #     x = self.feature_extractor(x).flatten(1)
+    #     return x
 
     def configure_optimizers(self):
         optimizer = initialize_optimizer(
@@ -456,28 +460,28 @@ class TaskClassifier(BaseClassifier):
 
         log_dir = self.logger.log_dir
 
-        # TODO stack feature reps into one array
-        feat_p = torch.cat([x["feat_p"] for x in outputs]).detach().cpu().numpy()
-        feat_q = torch.cat([x["feat_q"] for x in outputs]).detach().cpu().numpy()
+        # # TODO stack feature reps into one array
+        # feat_p = torch.cat([x["feat_p"] for x in outputs]).detach().cpu().numpy()
+        # feat_q = torch.cat([x["feat_q"] for x in outputs]).detach().cpu().numpy()
 
-        out_arr_p = os.path.join(log_dir, f"{split}_feat_p.npy")
-        with open(out_arr_p, "wb") as f:
-            np.save(f, feat_p)
+        # out_arr_p = os.path.join(log_dir, f"{split}_feat_p.npy")
+        # with open(out_arr_p, "wb") as f:
+        #     np.save(f, feat_p)
 
-        feat = np.concatenate((feat_p, feat_q))
-        out_arr_p = os.path.join(log_dir, f"{split}_feat.npy")
-        with open(out_arr_p, "wb") as f:
-            np.save(f, feat)
+        # feat = np.concatenate((feat_p, feat_q))
+        # out_arr_p = os.path.join(log_dir, f"{split}_feat.npy")
+        # with open(out_arr_p, "wb") as f:
+        #     np.save(f, feat)
 
-        # make labels (p, q)
+        # # make labels (p, q)
 
-        # labels_p = np.ones(feat_p.shape[0])
-        # labels_q = np.zeros(feat_q.shape[0])
-        # y = np.concatenate([labels_p, labels_q], 0).squeeze()
+        # # labels_p = np.ones(feat_p.shape[0])
+        # # labels_q = np.zeros(feat_q.shape[0])
+        # # y = np.concatenate([labels_p, labels_q], 0).squeeze()
 
-        labels_p = ["P"] * feat_p.shape[0]
-        labels_q = ["Q"] * feat_q.shape[0]
-        y = labels_p + labels_q
+        # labels_p = ["P"] * feat_p.shape[0]
+        # labels_q = ["Q"] * feat_q.shape[0]
+        # y = labels_p + labels_q
 
         # TODO t-sne
 
@@ -519,8 +523,8 @@ class TaskClassifier(BaseClassifier):
         outputs["m_p"] = batch["p"][2]
 
         # feature extraction for t-sne
-        outputs["feat_p"] = self.get_features(x_p)
-        outputs["feat_q"] = self.get_features(x_q)
+        # outputs["feat_p"] = self.get_features(x_p)
+        # outputs["feat_q"] = self.get_features(x_q)
 
         return outputs
 
@@ -692,11 +696,15 @@ class DomainClassifier(BaseClassifier):
 
     def training_step(self, batch, batch_idx) -> None:
 
+        # print(f"Training batch size: {batch['p'][0].shape}")
+
         prepped_batch = self.prepare_batch_data(batch["p"][0], batch["q"][0])
 
         return super().training_step(prepped_batch, batch_idx)
 
     def validation_step(self, batch, batch_idx) -> None:
+
+        print(f"Validation batch size: {batch['p'][0].shape}")
 
         outputs = self._shared_test_step(batch, batch_idx)
 
@@ -796,9 +804,9 @@ class DomainClassifier(BaseClassifier):
         outputs["y"] = y
         outputs["y_logits"] = y_logits
 
-        # for t-sne visualisation
-        outputs["feat_p"] = self.get_features(x_p)
-        outputs["feat_q"] = self.get_features(x_q)
+        # # for t-sne visualisation
+        # outputs["feat_p"] = self.get_features(x_p)
+        # outputs["feat_q"] = self.get_features(x_q)
 
         return outputs
 
@@ -845,44 +853,77 @@ class DomainClassifier(BaseClassifier):
 
         log_dir = self.logger.log_dir
 
-        # TODO stack feature reps into one array
-        feat_p = torch.cat([x["feat_p"] for x in outputs]).detach().cpu().numpy()
-        feat_q = torch.cat([x["feat_q"] for x in outputs]).detach().cpu().numpy()
+        # # TODO stack feature reps into one array
+        # feat_p = torch.cat([x["feat_p"] for x in outputs]).detach().cpu().numpy()
+        # feat_q = torch.cat([x["feat_q"] for x in outputs]).detach().cpu().numpy()
 
-        out_arr_p = os.path.join(log_dir, f"{split}_feat_p.npy")
-        with open(out_arr_p, "wb") as f:
-            np.save(f, feat_p)
+        # out_arr_p = os.path.join(log_dir, f"{split}_feat_p.npy")
+        # with open(out_arr_p, "wb") as f:
+        #     np.save(f, feat_p)
 
-        feat = np.concatenate((feat_p, feat_q))
-        out_arr_p = os.path.join(log_dir, f"{split}_feat.npy")
-        with open(out_arr_p, "wb") as f:
-            np.save(f, feat)
+        # feat = np.concatenate((feat_p, feat_q))
+        # out_arr_p = os.path.join(log_dir, f"{split}_feat.npy")
+        # with open(out_arr_p, "wb") as f:
+        #     np.save(f, feat)
 
-        # make labels (p, q)
+        # # make labels (p, q)
 
-        # labels_p = np.ones(feat_p.shape[0])
-        # labels_q = np.zeros(feat_q.shape[0])
-        # y = np.concatenate([labels_p, labels_q], 0).squeeze()
+        # # labels_p = np.ones(feat_p.shape[0])
+        # # labels_q = np.zeros(feat_q.shape[0])
+        # # y = np.concatenate([labels_p, labels_q], 0).squeeze()
 
-        labels_p = ["P"] * feat_p.shape[0]
-        labels_q = ["Q"] * feat_q.shape[0]
-        y = labels_p + labels_q
+        # labels_p = ["P"] * feat_p.shape[0]
+        # labels_q = ["Q"] * feat_q.shape[0]
+        # y = labels_p + labels_q
 
-        # TODO t-sne
+        # # TODO t-sne
 
-        # # TODO useful tsne parameters
-        # tsne = TSNE()
-        # embedding = tsne.fit(feat)
+        # # # TODO useful tsne parameters
+        # # tsne = TSNE()
+        # # embedding = tsne.fit(feat)
 
-        # fig_tsne, ax = plot(embedding, y)
+        # # fig_tsne, ax = plot(embedding, y)
 
-        # self.logger.experiment.add_figure(f"{split}/tsne", fig_tsne, self.trainer.global_step)
+        # # self.logger.experiment.add_figure(f"{split}/tsne", fig_tsne, self.trainer.global_step)
 
-        # out_fig = os.path.join(log_dir, f"{split}_tsne.pdf")
+        # # out_fig = os.path.join(log_dir, f"{split}_tsne.pdf")
 
-        # fig_tsne.savefig(out_fig)
+        # # fig_tsne.savefig(out_fig)
 
         return sample_p, sample_q, fig
+
+
+class ShallowNet(nn.Module):
+    def __init__(self, n_channels=1, n_outputs=128):
+        super(ShallowNet, self).__init__()
+
+        def discriminator_block(in_filters, out_filters, bn=False):
+            block = [
+                nn.Conv2d(in_filters, out_filters, 3, 2, 1),
+                nn.LeakyReLU(0.2, inplace=True),
+                nn.Dropout2d(0),
+            ]  # 0.25
+            if bn:
+                block.append(nn.BatchNorm2d(out_filters, 0.8))
+            return block
+
+        self.model = nn.Sequential(
+            *discriminator_block(n_channels, 16, bn=False),
+            *discriminator_block(16, 32),
+            *discriminator_block(32, 64),
+            *discriminator_block(64, 128),
+        )
+
+        self.adv_layer = nn.Sequential(nn.Conv2d(128, n_outputs, 1), nn.AdaptiveAvgPool2d((1, 1)))
+
+    def forward(self, img):
+        out = self.model(img)
+        out = self.adv_layer(out)
+        logits = out.view(out.shape[0], -1)
+
+        print(logits.shape)
+
+        return logits
 
 
 # Define the deep network for MMD-D
