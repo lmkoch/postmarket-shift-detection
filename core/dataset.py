@@ -13,6 +13,7 @@ from sklearn.model_selection import train_test_split
 from torch.utils.data import Subset
 from torchvision import datasets
 from torchvision.datasets import VisionDataset
+
 from utils.helpers import balanced_weights
 from utils.transforms import data_transforms
 
@@ -38,6 +39,7 @@ def dataset_fn(params_dict, replacement=False, num_samples=None) -> Dict:
     params_dl = params_dict["dl"]
 
     params_ds.setdefault("data_frac", 1)
+    params_ds.setdefault("data_size_abs", None)
 
     dataloader = {"train": {}, "val": {}, "test": {}}
     for p_q in ["p", "q"]:
@@ -50,6 +52,7 @@ def dataset_fn(params_dict, replacement=False, num_samples=None) -> Dict:
             params_ds["data_augmentation"],
             params_ds["data_augmentation_args"],
             params_ds["data_frac"],  # TODO this is new, untested! only works for eyepacs
+            data_size_abs=params_ds["data_size_abs"],  # TODO this is new, only works for eyepacs
         )
 
         for split in ["train", "val", "test"]:
@@ -83,9 +86,10 @@ def get_dataset(
     augmentations,
     augmentation_config,
     data_frac=None,
+    data_size_abs=None,
 ):
 
-    # FIXME data_frac is only implemented in EyePacs Dataset
+    # FIXME data_frac and data_size_abs is only implemented in EyePacs Dataset
 
     train_transform, test_transform = data_transforms(
         basic_preproc_config, augmentations, augmentation_config
@@ -149,10 +153,25 @@ def get_dataset(
 
             transform = train_transform if split == "train" else test_transform
 
+            data_n_abs = None
+
             # data frac is only reduced in training
             frac = data_frac
             if split == "test":
                 frac = None
+
+            # If training data set is specified as absolute number of samples, split it into train and val (80/20)
+            if data_size_abs is not None:
+                data_size_abs_train = int(data_size_abs * 0.8)
+
+                if split == "train":
+                    data_n_abs = data_size_abs_train
+                if split == "val":
+                    data_n_abs = data_size_abs - data_size_abs_train
+
+            # TODO: what if data_n_abs is larger than dataset size?? Currently, error would be thrown,
+            # which is fine in principle but should be logged properly
+            # TODO: what if val set is lower than batch size? Should not happen for n=100 (n_val=20) and batch_size <= 20
 
             dataset[split] = EyepacsDataset(
                 data_root=data_root,
@@ -160,6 +179,7 @@ def get_dataset(
                 transform=transform,
                 subset_params=subset_params,
                 data_frac=frac,
+                data_n_abs=data_n_abs,
             )
 
     else:
@@ -326,6 +346,7 @@ class EyepacsDataset(VisionDataset):
         subset_params=None,
         use_prepared_splits=True,
         data_frac=None,
+        data_n_abs=None,
     ):
         super(EyepacsDataset, self).__init__(
             root, transform=transform, target_transform=target_transform
@@ -387,9 +408,7 @@ class EyepacsDataset(VisionDataset):
         self._metadata_df = self._metadata_df.query(f"image_side in {list(sides)}")
         self._metadata_df = self._metadata_df.query(f"image_field in {list(keep_fields)}")
         self._metadata_df = self._metadata_df.query(f"patient_gender in {list(genders)}")
-        self._metadata_df = self._metadata_df.query(
-            f"session_image_quality in {list(keep_quality)}"
-        )
+
         self._metadata_df = self._metadata_df.query(f"patient_ethnicity in {list(ethnicities)}")
         self._metadata_df = self._metadata_df.query(f"diagnosis_image_dr_level in {dr_levels}")
 
@@ -422,10 +441,6 @@ class EyepacsDataset(VisionDataset):
             self._metadata_df[co_diagnoses].sum(axis=1) > 0
         )
 
-        # TODO allow reduced dataset size: randomly keep fraction of rows
-        if data_frac is not None:
-            self._metadata_df = self._metadata_df.sample(frac=data_frac)
-
         # allow subset query here
 
         if subset_params is not None:
@@ -440,6 +455,23 @@ class EyepacsDataset(VisionDataset):
             for k, v in subset_params.items():
                 print(k, v)
                 self._metadata_df = self._metadata_df.query(f"{k} in {v}")
+
+            # if image quality is specifically specified in the subgroup settings, use these settings.
+            # Otherwise, keep only Adequate, Good, Excellent. Filter below
+            if "session_image_quality" in subset_params:
+                keep_quality = subset_params["session_image_quality"]
+
+        # Apply quality filter (either default or specified in subset_params, see above)
+        self._metadata_df = self._metadata_df.query(
+            f"session_image_quality in {list(keep_quality)}"
+        )
+
+        # allow reduced dataset size: randomly keep fraction of rows (here) or absolute number of rows (below)
+        if data_frac is not None:
+            self._metadata_df = self._metadata_df.sample(frac=data_frac)
+
+        if data_n_abs is not None:
+            self._metadata_df = self._metadata_df.sample(n=data_n_abs)
 
         # Get the y values
         self._y_array = torch.LongTensor(self._metadata_df["diagnosis_image_dr_level"].values)

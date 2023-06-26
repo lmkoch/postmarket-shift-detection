@@ -6,6 +6,9 @@ import sys
 import time
 
 import pytorch_lightning as pl
+from pytorch_lightning.callbacks import ModelCheckpoint
+from pytorch_lightning.loggers import TensorBoardLogger
+
 from core.dataset import dataset_fn
 
 # TODO move to core data location
@@ -16,8 +19,6 @@ from core.model import (
     MaxKernel,
     TaskClassifier,
 )
-from pytorch_lightning.callbacks import ModelCheckpoint
-from pytorch_lightning.loggers import TensorBoardLogger
 from utils.config import hash_dict, load_config, save_config
 
 
@@ -43,7 +44,7 @@ def sbatch_build_submit(job_name, slurm_log_dir, argv):
         sbatch_file.writelines("#SBATCH --ntasks=1\n")
         sbatch_file.writelines("#SBATCH --time=3-0\n")
         sbatch_file.writelines("#SBATCH --gres=gpu:1\n")
-        # sbatch_file.writelines("#SBATCH --mem=60G\n")
+        # sbatch_file.writelines("#SBATCH --mem=120G\n")
         sbatch_file.writelines("#SBATCH --cpus-per-task=8\n")
         sbatch_file.writelines("#SBATCH --mail-type=END\n")
         sbatch_file.writelines("#SBATCH --mail-user=lisa.koch@uni-tuebingen.de\n")
@@ -136,7 +137,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--data_frac",
         action="store",
-        default=0.01,
+        default=1.0,
         type=float,
         help="Fraction of data to use (for debug purposes)",
     )
@@ -146,6 +147,13 @@ if __name__ == "__main__":
         default=1.0,
         type=float,
         help="Fraction of data to use (for ablation). Different from debug option!",
+    )
+    parser.add_argument(
+        "--train_data_abs_size",
+        action="store",
+        default=-1,
+        type=int,
+        help="Train+val dataset size to use. Not as a fraction, but absolute number of images. -1 means use full dataset",
     )
     parser.add_argument(
         "--slurm",
@@ -260,6 +268,11 @@ if __name__ == "__main__":
 
     params["dataset"]["ds"]["data_frac"] = args.train_data_frac
 
+    if args.train_data_abs_size == -1:
+        params["dataset"]["ds"]["data_size_abs"] = None
+    else:
+        params["dataset"]["ds"]["data_size_abs"] = args.train_data_abs_size
+
     if args.mmd_feature_extractor is not None:
         params["mmd"]["model"]["feature_extractor"] = args.mmd_feature_extractor
 
@@ -286,13 +299,35 @@ if __name__ == "__main__":
         ] = args.subset_comorbid
 
     if args.subset_qual is not None:
-        params["dataset"]["ds"]["q"]["subset_params"]["session_image_quality"] = args.subset_qual
+        quality_map = {
+            "Adequate": "Adequate",
+            "Good": "Good",
+            "Excellent": "Excellent",
+            "Insufficient": "Insufficient for Full Interpretation",
+        }
+
+        subset_params = [quality_map[ele] for ele in args.subset_qual]
+        params["dataset"]["ds"]["q"]["subset_params"]["session_image_quality"] = subset_params
 
     if args.subset_sex is not None:
         params["dataset"]["ds"]["q"]["subset_params"]["patient_gender"] = args.subset_sex
 
     if args.subset_ethnicity is not None:
-        params["dataset"]["ds"]["q"]["subset_params"]["patient_ethnicity"] = args.subset_ethnicity
+
+        # map list of ethnicities with and without spaces
+
+        ethnicity_map = {
+            "AfricanDescent": "African Descent",
+            "Asian": "Asian",
+            "Caucasian": "Caucasian",
+            "Indiansubcontinentorigin": "Indian subcontinent origin",
+            "LatinAmerican": "Latin American",
+            "Multi-racial": "Multi-racial",
+            "NativeAmerican": "Native American",
+        }
+
+        subset_params = [ethnicity_map[ele] for ele in args.subset_ethnicity]
+        params["dataset"]["ds"]["q"]["subset_params"]["patient_ethnicity"] = subset_params
 
     if args.subset_center is not None:
         params["dataset"]["ds"]["q"]["subset_params"]["center"] = args.subset_center
@@ -301,6 +336,9 @@ if __name__ == "__main__":
         params["dataset"]["dl"]["q"]["sampling_weights"][1] = args.subset_qual_gradual
 
     # TODO: eyepacs remaining categories
+
+    # TODO seed - store in config file. Will store it in DS, even though it is not a DS parameter
+    params["dataset"]["ds"]["global_seed"] = args.seed
 
     # mapping of correct config file chapter:
     param_category = {"mmdd": "mmd", "c2st": "domain_classifier", "muks": "task_classifier"}
@@ -422,8 +460,8 @@ if __name__ == "__main__":
     trainer = pl.Trainer(
         max_epochs=params[param_category[args.test_method]]["trainer"]["epochs"],
         log_every_n_steps=100,
-        limit_train_batches=args.data_frac,
-        limit_val_batches=args.data_frac,
+        limit_train_batches=args.data_frac,  # <1 for debugging
+        limit_val_batches=args.data_frac,  # <1 for debugging
         logger=logger,
         callbacks=checkpoint_callbacks,
         gpus=gpus,

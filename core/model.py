@@ -14,6 +14,9 @@ import torchvision
 from openTSNE import TSNE
 from pytorch_lightning.trainer.supporters import CombinedLoader
 from sklearn.metrics import accuracy_score, balanced_accuracy_score, confusion_matrix
+
+from core.mmdd import assemble_loss, mmd_test
+from core.muks import mass_ks_test
 from utils.helpers import (
     consistency_analysis,
     permutation_test_c2st,
@@ -21,9 +24,6 @@ from utils.helpers import (
     repeated_test,
 )
 from utils.tsne_utils import plot
-
-from core.mmdd import assemble_loss, mmd_test
-from core.muks import mass_ks_test
 
 
 # TODO maybe move to utils?
@@ -429,7 +429,13 @@ class TaskClassifier(BaseClassifier):
         # TODO here default replace=True is used, should this be False?
         # log power for sample size=100
         power, type_1_err = repeated_test(
-            y_p_sm, y_q_sm, mass_ks_test, num_reps=100, alpha=0.05, sample_size=100, replace=False
+            y_p_sm,
+            y_q_sm,
+            mass_ks_test,
+            num_reps=100,
+            alpha=0.05,
+            sample_size=100,
+            replace=True,  # this is important for practical reasons for small datasets, but power estimation on val set is unreliable
         )
 
         self.log(f"val/power", power, on_epoch=True, prog_bar=True, logger=True)
@@ -736,7 +742,8 @@ class DomainClassifier(BaseClassifier):
             num_reps=100,
             alpha=0.05,
             sample_size=100,
-            replace=False,  # this requires replacement in dataloder!!!
+            # replace=False,  # this requires replacement in dataloder!!!
+            replace=True,  # this requires replacement in dataloder!!!
         )
 
         self.log("val/power", power, on_epoch=True, prog_bar=True, logger=True)
