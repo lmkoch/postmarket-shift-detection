@@ -37,9 +37,8 @@ def sbatch_build_submit(job_name, slurm_log_dir, argv):
         sbatch_file.writelines(f"#SBATCH --job-name={job_name}\n")
         sbatch_file.writelines(f"#SBATCH --output={output_file}\n")
         sbatch_file.writelines(f"#SBATCH --error={error_file}\n")
-
         # slurm resources
-
+        sbatch_file.writelines("#SBATCH --exclude=slurm-bm-59,slurm-bm-30\n")
         sbatch_file.writelines("#SBATCH --partition=gpu-2080ti\n")
         sbatch_file.writelines("#SBATCH --ntasks=1\n")
         sbatch_file.writelines("#SBATCH --time=3-0\n")
@@ -333,6 +332,14 @@ if __name__ == "__main__":
         params["dataset"]["ds"]["q"]["subset_params"]["center"] = args.subset_center
 
     if args.subset_qual_gradual is not None:
+
+        params["dataset"]["dl"]["p"]["use_sampling"] = True
+        params["dataset"]["dl"]["q"]["use_sampling"] = True
+        params["dataset"]["dl"]["p"]["sampling_by_variable"] = "quality"
+        params["dataset"]["dl"]["q"]["sampling_by_variable"] = "quality"
+        params["dataset"]["dl"]["p"]["sampling_weights"] = [1, 1, 1, 1]
+        params["dataset"]["dl"]["q"]["sampling_weights"] = [1, 1, 1, 1]
+
         params["dataset"]["dl"]["q"]["sampling_weights"][1] = args.subset_qual_gradual
 
     # TODO: eyepacs remaining categories
