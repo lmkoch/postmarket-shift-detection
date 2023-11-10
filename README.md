@@ -1,6 +1,6 @@
-# Deep Hypothesis Tests Detect Clinically Relevant Subgroup Shifts in Medical Images
+# Distribution Shift Detection for the Postmarket Surveillance of Medical AI Algorithms
 
-This is the code used in the paper "Deep Hypothesis Tests Detect Clinically Relevant Subgroup Shifts in Medical Images" (link coming soon).
+This is the code used in the paper "Distribution Shift Detection for the Postmarket Surveillance of Medical AI Algorithms: A Retrospective Simulation Study on Retinal Fundus Images" (link coming soon).
 
 # Prerequisites
 
@@ -13,9 +13,7 @@ This is the code used in the paper "Deep Hypothesis Tests Detect Clinically Rele
 
 * **Data** 
 
-  For both MNIST and Camelyon17, the data is automatically to `data_root` directory specified in config the first time the dataset is created. For Camelyon17, this may take a while.
-
-  The Eyepacs dataset is not publicly available.
+  The Eyepacs dataset is not publicly available. Enquiries about data access may be directed to contact@eyepacs.org. In the meantime, please use your own dataset for experiments.
 
 # Experiments
 
@@ -42,8 +40,8 @@ If you use this code, please cite
 
 ````
 @article{koch2023subgroup,
-  title      = {Deep Hypothesis Tests Detect Clinically Relevant Subgroup Shifts in Medical Images},
-  author     = {Koch, Lisa M and Sch{\"u}rch, Christian M and Baumgartner, Christian F and Gretton, Arthur and Berens, Philipp},
+  title      = {Distribution Shift Detection for the Postmarket Surveillance of Medical AI Algorithms: A Retrospective Simulation Study on Retinal Fundus Images},
+  author     = {Koch, Lisa M and Baumgartner, Christian F and Berens, Philipp},
   journal    = {coming soon},
   year       = {2023},
 }
