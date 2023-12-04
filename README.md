@@ -2,6 +2,8 @@
 
 This is the code used in the paper "Distribution Shift Detection for the Postmarket Surveillance of Medical AI Algorithms: A Retrospective Simulation Study on Retinal Fundus Images" (link coming soon).
 
+**Note:** Code will be refactored soon for better usability.
+
 # Prerequisites
 
 * **Python environment**
