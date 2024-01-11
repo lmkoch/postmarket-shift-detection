@@ -18,7 +18,7 @@ from utils.helpers import balanced_weights
 from utils.transforms import data_transforms
 
 
-def dataset_fn(params_dict, replacement=False, num_samples=None) -> Dict:
+def dataset_fn(params_dict, replacement=False, num_samples=None, drop_last=True) -> Dict:
     """
     Returns data loaders for the given config
     Args:
@@ -69,6 +69,7 @@ def dataset_fn(params_dict, replacement=False, num_samples=None) -> Dict:
                 pin_memory=params_dl["pin_memory"],
                 replacement=replacement,
                 num_samples=num_samples,
+                drop_last=drop_last,
             )
 
     return {
@@ -198,6 +199,7 @@ def get_dataloader(
     pin_memory: bool = True,
     replacement: bool = False,
     num_samples: int = None,
+    drop_last=True,
 ):
     """Get dataloader based on a dataset and minibatch sampling strategy
 
@@ -237,7 +239,7 @@ def get_dataloader(
     dataloader = torch.utils.data.DataLoader(
         dataset,
         batch_size=batch_size,
-        drop_last=True,
+        drop_last=drop_last,
         num_workers=num_workers,
         pin_memory=pin_memory,
         **dataloader_kwargs,
@@ -544,29 +546,35 @@ class EyepacsDataset(VisionDataset):
 
     def print_summary(self):
 
+        def print_stuff(field, total):
+            counts = self._metadata_df[field].value_counts()
+            print(f"{counts} ({counts / total * 100})")
+
         print("Dataset summary:")
 
-        print(f"N = {len(self._metadata_df)}")
+        n_total = len(self._metadata_df)
+        print(f"N = {n_total}")
 
         print("Age:")
         print(
             f"Mean (std): {self._metadata_df['patient_age'].mean():.0f} ({self._metadata_df['patient_age'].std():.0f})"
         )
 
+
         print("Sex:")
-        print(f"{self._metadata_df['patient_gender'].value_counts()}")
+        print_stuff("patient_gender", n_total)
 
         print("Ethnicity:")
-        print(f"{self._metadata_df['patient_ethnicity'].value_counts()}")
+        print_stuff("patient_ethnicity", n_total)
 
         print("Image quality:")
-        print(f"{self._metadata_df['session_image_quality'].value_counts()}")
+        print_stuff("session_image_quality", n_total)
 
         print("Presence of co-morbidities")
-        print(f"{self._metadata_df['diagnoses_comorbidities'].value_counts()}")
+        print_stuff("diagnoses_comorbidities", n_total)
 
         print("DR grade")
-        print(f"{self._metadata_df['diagnosis_image_dr_level'].value_counts()}")
+        print_stuff("diagnosis_image_dr_level", n_total)
 
     def get_input(self, idx):
         """

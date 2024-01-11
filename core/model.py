@@ -464,46 +464,6 @@ class TaskClassifier(BaseClassifier):
 
         self._shared_subgroup_analysis(outputs, split)
 
-        log_dir = self.logger.log_dir
-
-        # # TODO stack feature reps into one array
-        # feat_p = torch.cat([x["feat_p"] for x in outputs]).detach().cpu().numpy()
-        # feat_q = torch.cat([x["feat_q"] for x in outputs]).detach().cpu().numpy()
-
-        # out_arr_p = os.path.join(log_dir, f"{split}_feat_p.npy")
-        # with open(out_arr_p, "wb") as f:
-        #     np.save(f, feat_p)
-
-        # feat = np.concatenate((feat_p, feat_q))
-        # out_arr_p = os.path.join(log_dir, f"{split}_feat.npy")
-        # with open(out_arr_p, "wb") as f:
-        #     np.save(f, feat)
-
-        # # make labels (p, q)
-
-        # # labels_p = np.ones(feat_p.shape[0])
-        # # labels_q = np.zeros(feat_q.shape[0])
-        # # y = np.concatenate([labels_p, labels_q], 0).squeeze()
-
-        # labels_p = ["P"] * feat_p.shape[0]
-        # labels_q = ["Q"] * feat_q.shape[0]
-        # y = labels_p + labels_q
-
-        # TODO t-sne
-
-        # # TODO useful tsne parameters
-        # tsne = TSNE()
-        # embedding = tsne.fit(feat)
-
-        # # TODO meaningful labels (P, Q)
-        # fig, ax = plot(embedding, y)
-
-        # self.logger.experiment.add_figure(f"{split}/tsne", fig, self.trainer.global_step)
-
-        # out_fig = os.path.join(log_dir, f"{split}_tsne.pdf")
-
-        # fig.savefig(out_fig)
-
         return y_p_sm, y_q_sm
 
     def _shared_test_step(self, batch, batch_idx):
@@ -578,16 +538,34 @@ class TaskClassifier(BaseClassifier):
         )
 
         metrics_df.to_csv(out_csv)
+        
+        raw_predictions_csv = os.path.join(
+            log_dir, f"{split}_raw_predictions_and_labels_epoch:{self.current_epoch}.csv"
+        )
+
+        df.to_csv(raw_predictions_csv)
 
     def _performance_metrics(self, subset):
 
         conf_mat = confusion_matrix(subset["y"], subset["y_pred"], labels=range(self.n_classes))
+
+        def sens_spec_score(y_true, y_pred):
+            tn, fp, fn, tp = confusion_matrix(y_true, y_pred, labels=[0, 1]).ravel()
+            sensitivity = tp / (tp+fn)
+            specificity = tn / (tn+fp)
+            
+            return sensitivity, specificity
+
+
+        binary_sens, binary_spec = sens_spec_score(subset["y"] >= 2.0, subset["y_pred"] >= 2.0)
 
         results = {
             "acc": accuracy_score(subset["y"], subset["y_pred"]),
             "bal_acc": balanced_accuracy_score(subset["y"], subset["y_pred"]),
             "binary_acc_onset_1": accuracy_score(subset["y"] >= 1.0, subset["y_pred"] >= 1.0),
             "binary_acc_onset_2": accuracy_score(subset["y"] >= 2.0, subset["y_pred"] >= 2.0),
+            "binary_sens_onset_2": binary_sens,
+            "binary_spec_onset_2": binary_spec,
             "quadratic_kappa": quadratic_weighted_kappa(conf_mat),
         }
 

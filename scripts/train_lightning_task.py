@@ -526,6 +526,24 @@ if __name__ == "__main__":
 
         model = module.load_from_checkpoint(model_path, strict=False)
 
+
+    ###############################################################################################################################
+    # Re-run test loop for MUKS only
+    ###############################################################################################################################
+    # Eval
+
+    re_run_test_loop_muks = True
+    if re_run_test_loop_muks:
+        dataloader = dataset_fn(params_dict=params["dataset"], drop_last=False)
+        data_module = DataModule(dataloader)
+
+        ckpt_path = model_path
+        trainer.test(model=model, ckpt_path=ckpt_path, datamodule=DataModule(dataloader))
+        
+        from sys import exit
+
+        exit(0) # Successful exit
+
     ###############################################################################################################################
     # Run Eval:
     ###############################################################################################################################

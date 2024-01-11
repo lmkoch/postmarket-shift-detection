@@ -44,7 +44,7 @@ exp_base_dir="./experiments/eyepacs_seeded_trainset_limited_debug"
 # config_file="./config/general/eyepacs_${test}_general.yaml"
 # method=${test}
 
-python scripts/train_lightning_task.py --config_file ${config_file} --subset_ethnicity ${ii}  --seed ${seed} --train_data_abs_size ${size} --method ${method} --exp_dir ${exp_dir} --slurm  
+# python scripts/train_lightning_task.py --config_file ${config_file} --subset_ethnicity ${ii}  --seed ${seed} --train_data_abs_size ${size} --method ${method} --exp_dir ${exp_dir} --slurm  
 
 
 # # for size in 100 500 1000 2000 5000 10000;
@@ -235,3 +235,22 @@ test="c2st"
 # python scripts/train_lightning_task.py --no_data_aug --mmd_feature_extractor liu  --config_file ./config/lightning/eyepacs_quality_mmdd.yaml --method mmdd --data_frac 1.0  --exp_dir ./experiments/eyepacs/eyepacs_quality_mmd_ablation --slurm
 # python scripts/train_lightning_task.py --no_data_aug --mmd_feature_extractor resnet50  --config_file ./config/lightning/eyepacs_quality_mmdd.yaml --method mmdd --data_frac 1.0  --exp_dir ./experiments/eyepacs/eyepacs_quality_mmd_ablation --slurm
 
+
+
+################################
+# Revision: revisit classifier results
+
+# python scripts/train_task_classifier.py --config_file ./config/lightning/eyepacs.yaml --method muks --data_frac 1.0  --exp_dir ./experiments/nov/task/${dataset} --slurm
+
+
+
+##############################################################
+# All experiments with fixed (limited) train sample size:
+# 100, 500, 1000, 5000, 10000
+
+exp_dir="./experiments/revisions"
+method="muks"
+config_file="./config/general/eyepacs_${method}_general.yaml"
+seed=1000
+
+python scripts/train_lightning_task.py --config_file ${config_file}  --seed ${seed}  --method ${method} --exp_dir ${exp_dir} --slurm  

@@ -6,6 +6,9 @@ import sys
 import time
 
 import pytorch_lightning as pl
+from pytorch_lightning.callbacks import ModelCheckpoint
+from pytorch_lightning.loggers import TensorBoardLogger
+
 from core.dataset import dataset_fn
 
 # TODO move to core data location
@@ -16,8 +19,6 @@ from core.model import (
     MaxKernel,
     TaskClassifier,
 )
-from pytorch_lightning.callbacks import ModelCheckpoint
-from pytorch_lightning.loggers import TensorBoardLogger
 from utils.config import hash_dict, load_config, save_config
 
 
@@ -103,13 +104,6 @@ if __name__ == "__main__":
         description="Run single experiment", formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
     parser.add_argument(
-        "--exp_dir",
-        action="store",
-        type=str,
-        help="experiment folder",
-        default="./experiments/oct/data_stats",
-    )
-    parser.add_argument(
         "--config_file",
         action="store",
         type=str,
@@ -126,32 +120,7 @@ if __name__ == "__main__":
         type=int,
         help="random seed",
     )
-    parser.add_argument(
-        "--method",
-        dest="test_method",
-        action="store",
-        help="Test Method (mmdd, c2st, muks)",
-        default="muks",
-    )
-    parser.add_argument(
-        "--data_frac",
-        action="store",
-        default=0.01,
-        type=float,
-        help="Fraction of data to use (for debug purposes)",
-    )
-    parser.add_argument(
-        "--slurm",
-        action="store_true",
-        default=False,
-        help="Prepare sbatch script and submit instead of executing locally",
-    )
-    parser.add_argument(
-        "--cpu",
-        action="store_true",
-        default=False,
-        help="Run on CPU",
-    )
+
     parser.add_argument("--no-slurm", dest="slurm", action="store_false", default=False)
     args = parser.parse_args()
 
