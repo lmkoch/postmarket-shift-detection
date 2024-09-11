@@ -1,0 +1,22 @@
+,criterion,group,n,acc,binary_acc_onset_2,binary_sens_onset_2,binary_spec_onset_2
+0,all,,26150,0.866,0.935,0.659,0.981
+4,sex,Male,10501,0.850,0.927,0.660,0.980
+5,sex,Female,15641,0.877,0.941,0.658,0.982
+6,sex,Other,8,0.875,1.000,,1.000
+86,quality,Adequate,10547,0.843,0.916,0.657,0.975
+87,quality,Good,10719,0.877,0.944,0.660,0.985
+88,quality,Excellent,4884,0.893,0.957,0.665,0.986
+89,ethnicity,Latin American,18251,0.867,0.937,0.661,0.982
+90,ethnicity,Caucasian,2977,0.901,0.950,0.537,0.989
+91,ethnicity,African Descent,1979,0.832,0.913,0.628,0.975
+92,ethnicity,Asian,1273,0.896,0.954,0.596,0.982
+93,ethnicity,Indian subcontinent origin,1212,0.806,0.903,0.787,0.957
+94,ethnicity,Native American,261,0.820,0.877,0.500,0.958
+95,ethnicity,Multi-racial,197,0.853,0.909,0.659,0.974
+96,co-morbidity,0.0,23595,0.869,0.940,0.582,0.982
+97,co-morbidity,1.0,2555,0.840,0.896,0.820,0.963
+98,dr-level,0.0,20561,0.987,0.990,,0.990
+99,dr-level,1.0,1882,0.123,0.887,,0.887
+100,dr-level,2.0,3290,0.632,0.642,0.642,
+101,dr-level,3.0,189,0.037,0.889,0.889,
+102,dr-level,4.0,228,0.189,0.719,0.719,
