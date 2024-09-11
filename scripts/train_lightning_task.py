@@ -503,26 +503,9 @@ if __name__ == "__main__":
 
         artifacts_path = {
             "eyepacs": "experiments/task/eyepacs/muks/ed38371b2586ab224c4c55642b443b9b/version_0/checkpoints/best-loss-epoch=20-step=102522.ckpt",
-            # "eyepacs": "experiments/archive/endspurt/.../ed38371b2586ab224c4c55642b443b9b/version_0/checkpoints/best-loss-epoch=15-step=78112.ckpt",
-            # "camelyon": "experiments/endspurt/camelyon/task_smallevents/task_classifier/1bd08d2856418bd6056d24f58671ec86/version_0/checkpoints/best-loss-epoch=13-step=248682.ckpt",
-            "camelyon": "experiments/nov/task/camelyon/muks/ae9d742a0d9fd635b06dd96a1afd35fe/version_0/checkpoints/best-loss-epoch=17-step=319734.ckpt",
-            "mnist": "experiments/oct/task/mnist/muks/0f2ab3ce9f01eb2f5c230e2c2aa2f99f/version_0/checkpoints/best-loss-epoch=13-step=10934.ckpt",
         }
 
-        # TODO TEST
-
-        eyepacs_smaller_train_data = {
-            "1": artifacts_path["eyepacs"],
-            "0.5": "experiments/eyepacs/task_eyepacs_data_frac/muks/20bf3822ef0dedf683189f4d10376047/version_0/checkpoints/best-loss-epoch=10-step=26851.ckpt",
-            "0.1": "experiments/eyepacs/task_eyepacs_data_frac/muks/7acfe952ca2b44df74a70db987ffe90e/version_0/checkpoints/best-loss-epoch=17-step=8784.ckpt",
-            "0.01": "experiments/eyepacs/task_eyepacs_data_frac/muks/d478a4d44fcb7f2f19e37fd3cdf3a0af/version_0/checkpoints/best-loss-epoch=24-step=1200.ckpt",
-        }
-
-        if dataset_type == "eyepacs" and params["dataset"]["ds"]["data_frac"] < 1:
-            model_path = eyepacs_smaller_train_data[str(params["dataset"]["ds"]["data_frac"])]
-            print(f"Load task model from: {model_path}")
-        else:
-            model_path = artifacts_path[dataset_type]
+        model_path = artifacts_path[dataset_type]
 
         model = module.load_from_checkpoint(model_path, strict=False)
 
